@@ -1,341 +1,335 @@
-// src/components/Cashbook.jsx
-import React, { useState, useEffect } from 'react'
-import NavBar from '../components/Navbar'
-import * as XLSX from 'xlsx'
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 
-export default function Cashbook({ tenantId }) {
-  const [formData, setFormData] = useState([])
-  const [showModal, setShowModal] = useState(false)
+const HEADERS = [
+  "Date", "Gross Premium", "Cancellation", "Actual Gross",
+  "Commission %", "Commission", "Net Premium", "ZINARA", "PPA GROSS",
+  "PPA %", "PPA Commission", "Net PPA", "Approved expenses",
+  "Expected remittances"
+];
 
-  const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem(`transactions_${tenantId}`)
-    return saved ? JSON.parse(saved) : []
-  })
-  const [reconciliations, setReconciliations] = useState(() => {
-    const saved = localStorage.getItem(`reconciliations_${tenantId}`)
-    return saved ? JSON.parse(saved) : []
-  })
-  const [amount, setAmount] = useState('')
-  const [description, setDescription] = useState('')
-  const [type, setType] = useState('payment')
-  const [isReconcileMode, setIsReconcileMode] = useState(false)
-  const [selectedTransactions, setSelectedTransactions] = useState([])
+const CURRENCY_SYMBOLS = { USD: "$", ZWG: "ZWG " };
+
+const normalize = str =>
+  str.toString().trim().toLowerCase().replace(/[\s_/]+/g, "");
+
+const getValue = (row, header) => {
+  const key = Object.keys(row).find(k => normalize(k) === normalize(header));
+  return key ? row[key] : "";
+};
+
+const formatAmt = (num, currency) =>
+  `${CURRENCY_SYMBOLS[currency] || ""}${parseFloat(num || 0).toFixed(2)}`;
+
+export default function Cashbook() {
+  const { posId } = useParams();
+  const { state: { name, data, currency: passedCurrency } = {} } = useLocation();
+  const navigate = useNavigate();
+
+  const [currency, setCurrency] = useState(
+    passedCurrency || localStorage.getItem("currency") || "USD"
+  );
+  const [excelData, setExcelData] = useState([]);
+  const [notification, setNotification] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem(
-      `transactions_${tenantId}`,
-      JSON.stringify(transactions)
-    )
-    localStorage.setItem(
-      `reconciliations_${tenantId}`,
-      JSON.stringify(reconciliations)
-    )
-  }, [transactions, reconciliations, tenantId])
+    localStorage.setItem("currency", currency);
+  }, [currency]);
 
-  const addTransaction = () => {
-    if (!amount || !description) return
-    const tx = {
-      id: Date.now().toString(),
-      amount: parseFloat(amount),
-      description,
-      type,
-      date: new Date().toLocaleString(),
-    }
-    setTransactions([...transactions, tx])
-    setAmount(''); setDescription('')
-  }
+  const showNote = (msg, type="success") => setNotification({msg, type});
 
-  const toggleReconcileMode = () => {
-    setIsReconcileMode(!isReconcileMode)
-    setSelectedTransactions([])
-  }
-  const toggleTransactionSelection = id => {
-    setSelectedTransactions(sel =>
-      sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]
-    )
-  }
-  const handleReconcile = () => {
-    if (!selectedTransactions.length) {
-      alert('Select at least one transaction.')
-      return
-    }
-    const now = new Date().toLocaleString()
-    const items = transactions.filter(tx =>
-      selectedTransactions.includes(tx.id)
-    )
-    setReconciliations([...reconciliations, { id: now, items }])
-    setTransactions(
-      transactions.filter(tx => !selectedTransactions.includes(tx.id))
-    )
-    setSelectedTransactions([])
-  }
+  const findDateKey = row =>
+    Object.keys(row).find(k => normalize(k) === "date") || null;
+  const findSumKey = row =>
+    Object.keys(row).find(k => normalize(k) === "sumofpremiumcollected") || null;
 
-  const matchedTotal = selectedTransactions.reduce((sum, id) => {
-    const tx = transactions.find(t => t.id === id)
-    return tx ? sum + (tx.type === 'receipt' ? tx.amount : -tx.amount) : sum
-  }, 0)
-  const remainingTransactions = transactions.filter(
-    tx => !selectedTransactions.includes(tx.id)
-  )
+  const recalcRow = row => {
+    const gp = parseFloat(getValue(row, "Gross Premium")) || 0;
+    const canc = parseFloat(getValue(row, "Cancellation")) || 0;
+    const actual = gp - canc;
+    const commPct = parseFloat(row.commissionPct) || 0;
+    const comm = actual * (commPct / 100);
+    const netPrem = actual - comm;
+    const ppaG = parseFloat(row.ppaGross) || 0;
+    const ppaPct = parseFloat(row.ppaPct) || 0;
+    const ppaComm = ppaG * (ppaPct / 100);
+    const netP = ppaG - ppaComm;
+    const zin = parseFloat(row.ZINARA) || 0;
+    const exp = parseFloat(row.approvedExpenses) || 0;
+    const remits = netPrem + zin + netP - exp;
+    return {
+      actualGross: parseFloat(actual.toFixed(2)),
+      commission: parseFloat(comm.toFixed(2)),
+      netPremium: parseFloat(netPrem.toFixed(2)),
+      ppaCommission: parseFloat(ppaComm.toFixed(2)),
+      netPpa: parseFloat(netP.toFixed(2)),
+      expectedRemittances: parseFloat(remits.toFixed(2))
+    };
+  };
 
-  // **** Excel upload code from your Trial component ****
-  const handleFileUpload = event => {
-    const file = event.target.files[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = e => {
-      const binaryStr = e.target.result
-      const workbook = XLSX.read(binaryStr, { type: 'binary' })
-      const sheetName = workbook.SheetNames[0]
-      const sheetData = XLSX.utils.sheet_to_json(
-        workbook.Sheets[sheetName]
-      )
-      const mappedData = sheetData.map(row => ({
-        date: row.Date || '',
-        details: row.Details || '',
-        payment: row.Payment || '',
-        saleAmount: row['Sale Amount'] || '',
-      }))
-      setFormData(mappedData)
-    }
-    reader.readAsBinaryString(file)
-  }
-
-  const [isDesktop, setIsDesktop] = useState(true)
   useEffect(() => {
-    const check = () => setIsDesktop(window.innerWidth >= 1024)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
-  if (!isDesktop) {
-    return (
-      <div className="p-4 text-center">
-        <h2 className="text-xl font-bold text-red-500">
-          Desktop only. Use a larger screen.
-        </h2>
-      </div>
-    )
-  }
+    if (Array.isArray(data) && data.length > 0) {
+      const sample = data[0];
+      const dateKey = findDateKey(sample);
+      const sumKey = findSumKey(sample);
+      if (!dateKey || !sumKey) {
+        showNote("Invalid data from Payments", "error");
+        setExcelData([]);
+        return;
+      }
+      const rows = data.map(r => {
+        const dateVal = r[dateKey];
+        const raw = parseFloat(r[sumKey]) || 0;
+        const gross = raw >= 0 ? raw : 0;
+        const canc = raw < 0 ? Math.abs(raw) : 0;
+        const row = {
+          Date: dateVal,
+          "Gross Premium": gross.toFixed(2),
+          "Cancellation": canc.toFixed(2),
+          commissionPct: 0,
+          ppaGross: 0,
+          ppaPct: 0,
+          ZINARA: 0,
+          approvedExpenses: 0
+        };
+        const derived = recalcRow(row);
+        return {
+          ...row,
+          actualGross: derived.actualGross.toFixed(2),
+          commission: derived.commission.toFixed(2),
+          netPremium: derived.netPremium.toFixed(2),
+          ppaCommission: derived.ppaCommission.toFixed(2),
+          netPpa: derived.netPpa.toFixed(2),
+          expectedRemittances: derived.expectedRemittances.toFixed(2)
+        };
+      });
+      setExcelData(rows);
+      localStorage.setItem("cashbookData", JSON.stringify(rows));
+    } else {
+      const saved = JSON.parse(localStorage.getItem("cashbookData") || "[]");
+      setExcelData(saved);
+    }
+  }, [data]);
+
+  const handleFieldChange = (i, field, val) => {
+    const list = [...excelData];
+    // keep two decimals for user-entered numeric fields?
+    // if field is numeric, parse and toFixed(2); else store raw
+    if (["commissionPct","ppaGross","ppaPct","ZINARA","approvedExpenses"].includes(field)) {
+      list[i][field] = val;
+    } else {
+      list[i][field] = val;
+    }
+    const derived = recalcRow(list[i]);
+    list[i].actualGross = derived.actualGross.toFixed(2);
+    list[i].commission = derived.commission.toFixed(2);
+    list[i].netPremium = derived.netPremium.toFixed(2);
+    list[i].ppaCommission = derived.ppaCommission.toFixed(2);
+    list[i].netPpa = derived.netPpa.toFixed(2);
+    list[i].expectedRemittances = derived.expectedRemittances.toFixed(2);
+    setExcelData(list);
+    localStorage.setItem("cashbookData", JSON.stringify(list));
+  };
+
+  const saveReportToServer = async () => {
+    if (!name) {
+      showNote("Name required","error");
+      return;
+    }
+    try {
+      const date = new Date().toISOString().slice(0,10);
+      const tableData = excelData.map(row => {
+        const mapped = {};
+        HEADERS.forEach(h => {
+          switch(h) {
+            case "Date":
+              mapped[h] = getValue(row, "Date").toString();
+              break;
+            case "Gross Premium":
+              mapped[h] = formatAmt(getValue(row, "Gross Premium"), currency);
+              break;
+            case "Cancellation":
+              mapped[h] = formatAmt(getValue(row, "Cancellation"), currency);
+              break;
+            case "Actual Gross":
+              mapped[h] = formatAmt(row.actualGross, currency);
+              break;
+            case "Commission %":
+              mapped[h] = (row.commissionPct || 0).toString();
+              break;
+            case "Commission":
+              mapped[h] = formatAmt(row.commission, currency);
+              break;
+            case "Net Premium":
+              mapped[h] = formatAmt(row.netPremium, currency);
+              break;
+            case "ZINARA":
+              mapped[h] = (row.ZINARA || 0).toString();
+              break;
+            case "PPA GROSS":
+              mapped[h] = (row.ppaGross || 0).toString();
+              break;
+            case "PPA %":
+              mapped[h] = (row.ppaPct || 0).toString();
+              break;
+            case "PPA Commission":
+              mapped[h] = formatAmt(row.ppaCommission, currency);
+              break;
+            case "Net PPA":
+              mapped[h] = formatAmt(row.netPpa, currency);
+              break;
+            case "Approved expenses":
+              mapped[h] = (row.approvedExpenses || 0).toString();
+              break;
+            case "Expected remittances":
+              mapped[h] = formatAmt(row.expectedRemittances, currency);
+              break;
+            default:
+              mapped[h] = getValue(row, h).toString();
+          }
+        });
+        return mapped;
+      });
+      const res = await fetch("/api/reports/upload", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ name, posId, date, currency, source: "cashbook", tableData })
+      });
+      if(!res.ok) throw new Error();
+      const { reportId } = await res.json();
+      showNote(`Saved ID: ${reportId}`);
+    } catch {
+      showNote("Save failed","error");
+    }
+  };
+
+  const clearAll = () => {
+    setExcelData([]);
+    localStorage.removeItem("cashbookData");
+    showNote("Cleared");
+  };
 
   return (
-    <div className="ml-64 w-4/5 p-4">
-  
-      <h2 className="text-xl font-bold mb-4 text-center">
-        Cashbook for Tenant {tenantId}
-      </h2>
-
-      {/* Excel Upload */}
-      <div className="mb-4">
-        <input
-          type="file"
-          accept=".xlsx, .xls"
-          onChange={handleFileUpload}
-          className="border p-2 rounded"
-        />
-      </div>
-
-      {/* Manual Entry */}
-      <div className="mb-4 text-center">
-        <input
-          type="text"
-          placeholder="Amount"
-          value={amount}
-          onChange={e => setAmount(e.target.value)}
-          className="border rounded px-2 py-1 mr-2"
-        />
-        <input
-          type="text"
-          placeholder="Description"
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          className="border rounded px-2 py-1 mr-2"
-        />
-        <select
-          value={type}
-          onChange={e => setType(e.target.value)}
-          className="border rounded px-10 py-1 mr-2"
-        >
-          <option value="payment">SALES</option>
-          <option value="receipt">PAYMENTS</option>
-        </select>
-        <button
-          onClick={addTransaction}
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-        >
-          Add Transaction
-        </button>
-      </div>
-
-      {/* Reconcile Toggle */}
-      <div className="text-center mb-4">
-        <button
-          onClick={toggleReconcileMode}
-          className={`px-4 py-2 rounded ${
-            isReconcileMode ? 'bg-red-500' : 'bg-green-500'
-          } text-white`}
-        >
-          {isReconcileMode ? 'Exit Reconcile Mode' : 'Reconcile'}
-        </button>
-      </div>
-
-      {/* Grid */}
-      <div className="grid grid-cols-2 grid-rows-2 gap-4">
-        {/* Auto-Filled Form */}
-        {formData.length > 0 && (
-          <div className="bg-gray-100 p-4 rounded shadow">
-            <h3 className="text-lg font-semibold mb-2 text-center">
-              Auto-Filled Form
-            </h3>
-            <table className="table-auto border-collapse border border-gray-300 w-full">
-              <thead>
-                <tr className="bg-gray-200">
-                  <th className="border px-4 py-2">Date</th>
-                  <th className="border px-4 py-2">Details</th>
-                  <th className="border px-4 py-2">Payment</th>
-                  <th className="border px-4 py-2">Sale Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {formData.map((row, i) => (
-                  <tr key={i}>
-                    <td className="border px-4 py-2">{row.date}</td>
-                    <td className="border px-4 py-2">{row.details}</td>
-                    <td className="border px-4 py-2">{row.payment}</td>
-                    <td className="border px-4 py-2">{row.saleAmount}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Transactions */}
-        <div className="bg-gray-100 p-4 rounded shadow">
-          <h3 className="text-lg font-semibold mb-4 text-center">
-            Transactions
-          </h3>
-          <table className="table-auto border-collapse border border-gray-300 w-full">
-            <thead>
-              <tr className="bg-gray-200">
-                {isReconcileMode && <th className="border px-4 py-2"></th>}
-                <th className="border px-4 py-2">Description</th>
-                <th className="border px-4 py-2">Receipt</th>
-                <th className="border px-4 py-2">Payment</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map(tx => (
-                <tr key={tx.id} className="bg-white">
-                  {isReconcileMode && (
-                    <td className="border px-4 py-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedTransactions.includes(tx.id)}
-                        onChange={() => toggleTransactionSelection(tx.id)}
-                      />
-                    </td>
-                  )}
-                  <td className="border px-4 py-2">{tx.description}</td>
-                  <td className="border px-4 py-2">
-                    {tx.type === 'receipt' && `$${tx.amount.toFixed(2)}`}
-                  </td>
-                  <td className="border px-4 py-2">
-                    {tx.type === 'payment' && `$${tx.amount.toFixed(2)}`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Matched */}
-        <div className="bg-gray-100 p-4 rounded shadow">
-          <h3 className="text-lg font-semibold mb-4 text-center">Matched</h3>
-          <ul className="space-y-2">
-            {selectedTransactions.map(id => {
-              const tx = transactions.find(t => t.id === id)
-              return (
-                <li
-                  key={id}
-                  className="bg-white p-2 rounded shadow flex justify-between"
-                >
-                  <span>{tx.description}</span>
-                  <span>
-                    {tx.type === 'receipt'
-                      ? `+$${tx.amount.toFixed(2)}`
-                      : `-$${tx.amount.toFixed(2)}`}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-          <div className="text-center mt-4">
-            <button
-              onClick={handleReconcile}
-              className="bg-green-500 text-white px-4 py-2 rounded"
-            >
-              Reconcile (Total: ${matchedTotal.toFixed(2)})
-            </button>
-          </div>
-        </div>
-
-        {/* Remaining & Sessions */}
-        <div className="bg-gray-100 p-4 rounded shadow">
-          <h3
-            className="text-lg font-semibold mb-4 text-center cursor-pointer"
-            onClick={() => setShowModal(true)}
-          >
-            Reconciled Sessions ({reconciliations.length})
-          </h3>
-          <h3 className="text-lg font-semibold mb-4 text-center">
-            Remaining
-          </h3>
-          <ul className="space-y-2">
-            {remainingTransactions.map(tx => (
-              <li
-                key={tx.id}
-                className="bg-white p-2 rounded shadow flex justify-between"
-              >
-                <span>{tx.description}</span>
-                <span>${tx.amount.toFixed(2)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded shadow-lg max-h-full overflow-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold">All Reconciliations</h3>
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-3 py-1 bg-red-500 text-white rounded"
-              >
-                Close
-              </button>
+    <div id="cashbook" className="flex flex-col pt-36 px-4 h-screen bg-gray-50">
+      {notification && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+          <div className={`pointer-events-auto p-4 rounded shadow-lg ${
+            notification.type==="success"?"bg-green-100":"bg-red-100"
+          }`}>
+            <div className="flex items-center justify-between">
+              <span>{notification.msg}</span>
+              <button onClick={()=>setNotification(null)} className="ml-4 font-bold">×</button>
             </div>
-            {reconciliations.map(rec => (
-              <div key={rec.id} className="mb-4 p-2 border rounded">
-                <p className="font-semibold">Session: {rec.id}</p>
-                <ul className="pl-4 list-disc">
-                  {rec.items.map(item => (
-                    <li key={item.id}>
-                      {item.description} —{' '}
-                      {item.type === 'receipt'
-                        ? `+$${item.amount.toFixed(2)}`
-                        : `-$${item.amount.toFixed(2)}`}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
           </div>
         </div>
       )}
+
+      <div className="p-4 bg-white shadow flex flex-wrap items-end space-x-4">
+        <h1 className="text-xl font-bold">Cashbook</h1>
+        <label className="flex flex-col">
+          <span className="text-sm">Currency</span>
+          <select
+            value={currency}
+            onChange={e=>setCurrency(e.target.value)}
+            className="p-2 w-24 border rounded"
+          >
+            <option value="USD">USD</option>
+            <option value="ZWG">ZWG</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="flex-1 overflow-auto p-4">
+        <div className="min-w-max">
+          <table className="min-w-full border-collapse">
+            <thead>
+              <tr>
+                {HEADERS.map(h => (
+                  <th key={h} className="p-2 border bg-gray-100 text-left text-sm">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {excelData.length === 0
+                ? (
+                  <tr>
+                    <td colSpan={HEADERS.length} className="p-4 text-center text-gray-500">
+                      No data.
+                    </td>
+                  </tr>
+                )
+                : excelData.map((row, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="p-2 border text-sm">{getValue(row, "Date")}</td>
+                    <td className="p-2 border text-sm">{formatAmt(getValue(row, "Gross Premium"), currency)}</td>
+                    <td className="p-2 border text-sm">{formatAmt(getValue(row, "Cancellation"), currency)}</td>
+                    <td className="p-2 border text-sm">{formatAmt(row.actualGross, currency)}</td>
+                    <td className="p-2 border">
+                      <input
+                        type="number"
+                        value={row.commissionPct || ''}
+                        onChange={e => handleFieldChange(i, "commissionPct", +e.target.value)}
+                        className="w-16 p-1 border rounded text-sm"
+                      />
+                    </td>
+                    <td className="p-2 border text-sm">{formatAmt(row.commission, currency)}</td>
+                    <td className="p-2 border text-sm">{formatAmt(row.netPremium, currency)}</td>
+                    <td className="p-2 border">
+                      <input
+                        type="number"
+                        value={row.ZINARA || ''}
+                        onChange={e => handleFieldChange(i, "ZINARA", +e.target.value)}
+                        className="w-16 p-1 border rounded text-sm"
+                      />
+                    </td>
+                    <td className="p-2 border">
+                      <input
+                        type="number"
+                        value={row.ppaGross || ''}
+                        onChange={e => handleFieldChange(i, "ppaGross", +e.target.value)}
+                        className="w-16 p-1 border rounded text-sm"
+                      />
+                    </td>
+                    <td className="p-2 border">
+                      <input
+                        type="number"
+                        value={row.ppaPct || ''}
+                        onChange={e => handleFieldChange(i, "ppaPct", +e.target.value)}
+                        className="w-16 p-1 border rounded text-sm"
+                      />
+                    </td>
+                    <td className="p-2 border text-sm">{formatAmt(row.ppaCommission, currency)}</td>
+                    <td className="p-2 border text-sm">{formatAmt(row.netPpa, currency)}</td>
+                    <td className="p-2 border">
+                      <input
+                        type="number"
+                        value={row.approvedExpenses || ''}
+                        onChange={e => handleFieldChange(i, "approvedExpenses", +e.target.value)}
+                        className="w-16 p-1 border rounded text-sm"
+                      />
+                    </td>
+                    <td className="p-2 border text-sm">{formatAmt(row.expectedRemittances, currency)}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="p-4 bg-white shadow flex justify-end space-x-3">
+        <button onClick={()=>navigate(-1)} className="px-4 py-2 bg-gray-300 hover:bg-gray-400 rounded">Back</button>
+        <button onClick={saveReportToServer} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded">Done</button>
+        <button onClick={clearAll} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded">Clear</button>
+        <button
+          onClick={() => navigate(`/payments/${posId}/sales`, { state: { name } })}
+          className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded"
+        >
+          Next
+        </button>
+      </div>
     </div>
-  )
+  );
 }

@@ -1,38 +1,39 @@
 require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
-const db = require('./config/db'); // Import the database connection
+const db = require('./config/db');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
-const managerRoutes = require('./routes/managerRoutes'); 
+const managerRoutes = require('./routes/managerRoutes');
+const reportsRouter = require('./routes/Reports');
+const tenantsRouter = require('./routes/tenants');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Test database connection on startup
 (async () => {
   try {
     await db.query('SELECT 1');
     console.log('Database connected!');
   } catch (error) {
     console.error('Failed to connect to the database:', error.message);
-    process.exit(1); // Exit the app if the database connection fails
+    process.exit(1);
   }
 })();
 
-// Routes
 app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
 app.use('/manager', managerRoutes);
+app.use('/api/reports', reportsRouter);
+app.use('/api/tenants', tenantsRouter);
 
-// Fallback route for unhandled requests
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-const PORT = process.env.PORT || 3001; // Use PORT from .env or default to 3001
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`API running on http://localhost:${PORT}`);
 });

@@ -1,47 +1,50 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 
-const NavBar = () => (
-  <nav className="bg-[#6B8E23] border-b-2 border-white border-opacity-50 shadow-md w-full">
-    <div className="max-w-6xl mx-auto flex items-center py-4">
-      {/* Logo Section */}
-      <div className="flex-shrink-0 mr-8">
+export default function AgentNav() {
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('isAgent');
+    window.location.replace('/login');
+  };
+
+  const links = [
+    { to: '/tenants', label: 'Agent List' },
+    { to: '/reports', label: 'Reports' },
+  ];
+
+  return (
+    <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between bg-[#6B8E23] shadow-lg py-4 px-8">
+      {/* Logo & Title */}
+      <div className="flex items-center space-x-4">
         <img
-          src="/images/logo1.png" // Replace with the correct path to your logo
-          alt="Logo"
-          className="h-30 w-auto"
+          src="/images/logo1.png"
+          alt="Agent Logo"
+          className="h-20 w-20 rounded-full border-2 border-white"
         />
+        <h2 className="text-white text-lg font-bold uppercase">Account Manager</h2>
       </div>
 
-      {/* Navigation Links */}
-      <div className="flex items-center justify-center space-x-8 flex-grow">
-        <Link
-          to="/tenants"
-          className="text-white text-lg font-semibold uppercase tracking-wide transform transition duration-200 hover:text-gray-200 hover:scale-105"
-        >
-          Tenants
-        </Link>
-        <Link
-          to="/reports"
-          className="text-white text-lg font-semibold uppercase tracking-wide transform transition duration-200 hover:text-gray-200 hover:scale-105"
-        >
-          Reports
-        </Link>
-        <Link
-          to="/notes"
-          className="text-white text-lg font-semibold uppercase tracking-wide transform transition duration-200 hover:text-gray-200 hover:scale-105"
-        >
-          Notes
-        </Link>
-        <Link
-          to="/messages"
-          className="text-white text-lg font-semibold uppercase tracking-wide transform transition duration-200 hover:text-gray-200 hover:scale-105"
-        >
-          Messages
-        </Link>
-      </div>
-    </div>
-  </nav>
-);
+      {/* Links */}
+      <ul className="flex space-x-6">
+        {links.map(({ to, label }) => (
+          <li key={to}>
+            <Link
+              to={to}
+              className="text-white text-md font-semibold uppercase transition hover:scale-105 hover:text-gray-200"
+            >
+              {label}
+            </Link>
+          </li>
+        ))}
+      </ul>
 
-export default NavBar;
+      {/* Logout */}
+      <button
+        onClick={handleLogout}
+        className="text-white text-md font-semibold uppercase transition hover:scale-105 hover:text-gray-200"
+      >
+        Logout
+      </button>
+    </nav>
+  );
+}

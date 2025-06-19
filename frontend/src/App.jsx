@@ -1,83 +1,125 @@
-import { useState, useCallback } from 'react'
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from 'react-router-dom'
+// src/App.jsx
+import React, { useState, useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 
 import Login from './Login'
-import AdminDashboard from './components/AdminDashboard'
-import Recon from './pages/recon'
+import WelcomePage from './components/WelcomePage'
 import TenantPage from './pages/TenantPage'
-import Reconciliation from './components/TenantDetails'
+import TenantDetails from './components/TenantDetails'
+import Reports from './components/Reports'
+import Cashbook from './components/Cashbook'
+import PaymentsPage from './components/Payments'
+import AdminDashboard from './components/AdminDashboard'
 import AdminNav from './components/AdminNav'
+import AgentNav from './components/Navbar'
+import Sales from './components/SalesOne'
 
-export default function App() {
-  const [token, setTokenState] = useState(() => localStorage.getItem('token'))
-  const [isAdmin, setIsAdminState] = useState(() =>
-    JSON.parse(localStorage.getItem('isAdmin') || 'false')
-  )
+const RequireAuth = ({ children }) => {
+  const token = localStorage.getItem('token')
+  return token ? children : <Navigate to="/" replace />
+}
 
-  const setToken = useCallback(tok => {
-    setTokenState(tok)
-    if (tok) localStorage.setItem('token', tok)
-    else localStorage.removeItem('token')
+const RequireAdmin = ({ children }) => {
+  const token = localStorage.getItem('token')
+  const isAdmin = localStorage.getItem('isAdmin') === 'true'
+  return token && isAdmin ? children : <Navigate to="/" replace />
+}
+
+const DesktopGuard = ({ children }) => {
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768)
+  useEffect(() => {
+    const checkWidth = () => setIsDesktop(window.innerWidth >= 768)
+    window.addEventListener('resize', checkWidth)
+    return () => window.removeEventListener('resize', checkWidth)
   }, [])
 
-  const setIsAdmin = useCallback(flag => {
-    setIsAdminState(flag)
-    localStorage.setItem('isAdmin', JSON.stringify(flag))
-  }, [])
+  if (!isDesktop) {
+    return (
+      <div className="flex items-center justify-center h-screen text-center px-4">
+        <p className="text-lg font-semibold">
+          This site is only accessible on desktop screens. Please switch to a
+          device with a width of at least 768px.
+        </p>
+      </div>
+    )
+  }
+  return children
+}
+
+const App = () => {
+  const [tokenState, setTokenState] = useState(localStorage.getItem('token') || '')
+  const [isAdminState, setIsAdminState] = useState(localStorage.getItem('isAdmin') === 'true')
+  const [managerName, _] = useState(localStorage.getItem('managerName') || 'Manager')
+
+  useEffect(() => {
+    if (tokenState) {
+      localStorage.setItem('token', tokenState)
+      localStorage.setItem('isAdmin', isAdminState ? 'true' : 'false')
+    } else {
+      localStorage.removeItem('token')
+      localStorage.removeItem('isAdmin')
+      localStorage.removeItem('managerName')
+    }
+  }, [tokenState, isAdminState])
 
   const handleLogout = () => {
-    setToken(null)
-    setIsAdmin(false)
+    setTokenState('')
+    setIsAdminState(false)
   }
 
   return (
     <Router>
-      {!token ? (
-        <Routes>
-          <Route
-            path="/"
-            element={<Login setToken={setToken} setIsAdmin={setIsAdmin} />}
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      ) : (
-        <div className="flex">
-          {isAdmin && <AdminNav handleLogout={handleLogout} />}
+      {tokenState && isAdminState && <AdminNav />}
+      {tokenState && !isAdminState && <AgentNav />}
 
-          <div className="flex-1 min-h-screen bg-gray-100 p-4">
-            <Routes>
-              {isAdmin && (
-                <>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            tokenState ? (
+              <WelcomePage managerName={managerName} onLogout={handleLogout} />
+            ) : (
+              <Login
+                setToken={(t) => {
+                  setTokenState(t)
+                }}
+                setIsAdmin={(flag) => setIsAdminState(flag)}
+              />
+            )
+          }
+        />
+
+        <Route
+          path="/*"
+          element={
+            <DesktopGuard>
+              <RequireAuth>
+                <Routes>
+                  <Route path="tenants" element={<TenantPage />} />
+                  <Route path="tenants/:posId" element={<TenantPage />} />
+                  <Route path="reconciliation/:tenantId" element={<TenantDetails />} />
+                  <Route path="payments/:posId" element={<PaymentsPage />} />
+                  <Route path="payments/:posId/cashbook" element={<Cashbook/>} />
+                  <Route path="payments/:posId/sales" element={<Sales/>} />
+                  <Route path="reports" element={<Reports />} />
+                  
                   <Route
-                    path="/"
-                    element={<AdminDashboard token={token} />}
+                    path="add"
+                    element={
+                      <RequireAdmin>
+                        <AdminDashboard />
+                      </RequireAdmin>
+                    }
                   />
-                  <Route path="/recon" element={<Recon />} />
-                </>
-              )}
-
-              <Route path="/tenants" element={<TenantPage />} />
-              <Route path="/tenants/:tenantId" element={<TenantPage />} />
-              <Route
-                path="/reconciliation/:tenantId"
-                element={<Reconciliation />}
-              />
-
-              <Route
-                path="*"
-                element={
-                  <Navigate to={isAdmin ? '/' : '/tenants'} replace />
-                }
-              />
-            </Routes>
-          </div>
-        </div>
-      )}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </RequireAuth>
+            </DesktopGuard>
+          }
+        />
+      </Routes>
     </Router>
   )
 }
+
+export default App

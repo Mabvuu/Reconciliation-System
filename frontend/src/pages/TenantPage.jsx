@@ -1,42 +1,67 @@
 // src/pages/TenantPage.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
 import TenantList from '../components/TenantList';
-import TenantDetails from '../components/TenantDetails';
 
 const TenantPage = () => {
   const [tenants, setTenants] = useState(() => {
     const saved = localStorage.getItem('tenants');
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map(t => {
+            if (Array.isArray(t.posIds)) {
+              return t;
+            }
+            if (t.posId) {
+              return {
+                name: t.name || '',
+                posIds: [t.posId],
+                dateAdded: t.dateAdded || new Date().toLocaleDateString(),
+              };
+            }
+            return {
+              name: t.name || '',
+              posIds: [],
+              dateAdded: t.dateAdded || new Date().toLocaleDateString(),
+            };
+          });
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [];
   });
-  const { tenantId } = useParams();
 
   useEffect(() => {
     localStorage.setItem('tenants', JSON.stringify(tenants));
   }, [tenants]);
 
-  const addTenant = (name) => {
-    const newTenant = {
-      id: Date.now().toString(),
-      name,
-      dateAdded: new Date().toLocaleString(),
-    };
-    setTenants(prev => [...prev, newTenant]);
+  const addTenant = tenant => {
+    setTenants(prev => [...prev, tenant]);
   };
 
-  const deleteTenant = (id) => {
-    setTenants(prev => prev.filter(t => t.id !== id));
+  const removeTenant = index => {
+    setTenants(prev => prev.filter((_, i) => i !== index));
   };
 
-  if (tenantId) {
-    return <TenantDetails tenantId={tenantId} />;
-  }
+  const addPosId = (index, posId) => {
+    setTenants(prev =>
+      prev.map((t, i) =>
+        i === index
+          ? { ...t, posIds: Array.isArray(t.posIds) ? [...t.posIds, posId] : [posId] }
+          : t
+      )
+    );
+  };
 
   return (
     <TenantList
       tenants={tenants}
       addTenant={addTenant}
-      deleteTenant={deleteTenant}
+      removeTenant={removeTenant}
+      addPosId={addPosId}
     />
   );
 };

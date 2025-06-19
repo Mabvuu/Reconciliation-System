@@ -1,3 +1,4 @@
+// src/Login.jsx
 import { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -22,7 +23,8 @@ export default function Login({ setToken, setIsAdmin }) {
       setToken(res.data.token);
       const payload = JSON.parse(atob(res.data.token.split('.')[1]));
       setIsAdmin(payload.is_admin);
-      alert('Admin login successful!');
+      // after successful admin login, go to AdminDashboard:
+      navigate('/add');
     } catch (err) {
       alert(err.response?.data || 'Admin login failed');
     }
@@ -34,17 +36,13 @@ export default function Login({ setToken, setIsAdmin }) {
         'http://localhost:3001/manager/login',
         { email: managerEmail, idNumber }
       );
-      // **1.** Save the token so App.js knows you’re logged in:
       setToken(res.data.token);
-      // **2.** Explicitly mark you’re not an admin:
       setIsAdmin(false);
-      // **3.** Finally, navigate to /tenants
       navigate('/tenants');
     } catch (err) {
       alert(err.response?.data?.error || 'Manager login failed');
     }
   };
-  
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f5] text-gray-700">
@@ -73,9 +71,12 @@ export default function Login({ setToken, setIsAdmin }) {
             <img
               src="/images/logo1.png"
               alt="Logo"
-              className="h-36 w-auto"
+              className="h-36 w-36"
             />
+           
           </div>
+           <h1 className='text=2xl font-bold text-center text-white'>Welcome to Oliver Compass</h1>
+           <br />
           <h1 className="text-2xl font-bold text-center mb-6 text-[#ffffff]">
             ADMIN LOGIN
           </h1>
@@ -159,8 +160,3 @@ export default function Login({ setToken, setIsAdmin }) {
     </div>
   );
 }
-
-
-
-//node -e "console.log(require('bcrypt').hashSync('holdonw3', 12))"
-//cd to the file
