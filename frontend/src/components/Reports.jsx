@@ -284,7 +284,7 @@ export default function Reports() {
 
         {modalReport && (
           <div className="fixed inset-0 bg-black bg-opacity-40 pt-40 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[80vh] overflow-auto">
+            <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl max-h-[80vh] overflow-auto">
               {/* Header with Delete + Download + Close */}
               <div className="flex justify-between items-center border-b px-6 py-4">
                 <h2 className="text-xl font-semibold">Report Details</h2>
@@ -321,7 +321,7 @@ export default function Reports() {
                       <tr className="bg-gray-100">
                         {modalReport.data.length > 0 &&
                           Object.keys(modalReport.data[0]).map(col => (
-                            <th key={col} className="border px-3 py-2 text-left">
+                            <th key={col} className="border px-10 py-2 text-left">
                               {col}
                             </th>
                           ))}

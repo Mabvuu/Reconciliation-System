@@ -1,3 +1,4 @@
+// frontend/src/components/Payments.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -45,6 +46,10 @@ export default function Payments() {
       showNote('Only .xlsx/.xls allowed', 'error');
       return;
     }
+    if (!name) {
+      showNote('Name required for filtering', 'error');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = evt => {
       try {
@@ -59,8 +64,19 @@ export default function Payments() {
           });
           return newRow;
         });
-        setExcelData(parsedRows);
-        showNote('Excel loaded');
+        // filter by name only
+        const filteredByName = parsedRows.filter(row =>
+          Object.values(row).some(val =>
+            val != null && val.toString().trim() === name
+          )
+        );
+        if (filteredByName.length === 0) {
+          setExcelData([]);
+          showNote(`No transactions for Name "${name}"`, 'error');
+          return;
+        }
+        setExcelData(filteredByName);
+        showNote(`Loaded ${filteredByName.length} rows for Name "${name}"`);
       } catch (err) {
         console.error('Failed to parse Excel:', err);
         showNote('Failed to parse Excel file', 'error');
@@ -142,7 +158,7 @@ export default function Payments() {
       <div className="p-4 bg-white shadow flex pt-30 flex-wrap items-end space-x-4">
         <h1 className="text-xl font-bold flex-shrink-0">Sales</h1>
         <div className="text-sm text-gray-600">
-          POS ID: <span className="font-medium">{posId}</span>
+          Name: <span className="font-medium">{name || '-'}</span>
         </div>
         <label className="flex flex-col">
           <span className="text-sm">Currency</span>
@@ -244,19 +260,17 @@ export default function Payments() {
               showNote('Ensure columns "Date" and "SumOfPremium_Collected" exist', 'error');
               return;
             }
-            // group filtered rows by date
-            const groupMap = {};
-            filteredData.forEach(row => {
+            const transformed = filteredData.map(row => {
               const dateVal = row[dateKey];
-              if (!dateVal) return;
-              const raw = parseFloat(row[sumKey]) || 0;
-              groupMap[dateVal] = (groupMap[dateVal] || 0) + raw;
+              const raw = parseFloat(String(row[sumKey]).replace(/,/g, '').trim()) || 0;
+              const gross = raw >= 0 ? raw : 0;
+              const canc = raw < 0 ? Math.abs(raw) : 0;
+              return {
+                Date: dateVal,
+                "Gross Premium": gross.toString(),
+                "Cancellation": canc.toString(),
+              };
             });
-            const transformed = Object.entries(groupMap).map(([dateVal, totalRaw]) => ({
-              Date: dateVal,
-              SumOfPremium_Collected: totalRaw.toString(),
-              // if you had Name per row and want to aggregate names, skip or handle separately
-            }));
             navigate(
               `/payments/${posId}/cashbook`,
               { state: { name, data: transformed, currency } }

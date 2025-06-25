@@ -1,3 +1,4 @@
+// frontend/src/components/Cashbook.jsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 
@@ -5,7 +6,7 @@ const HEADERS = [
   "Date", "Gross Premium", "Cancellation", "Actual Gross",
   "Commission %", "Commission", "Net Premium", "ZINARA", "PPA GROSS",
   "PPA %", "PPA Commission", "Net PPA", "Approved expenses",
-  "Expected remittances"
+  "Expected remittances", "Remittances collected", "Balance", "Comment"
 ];
 
 const CURRENCY_SYMBOLS = { USD: "$", ZWG: "ZWG " };
@@ -31,18 +32,48 @@ export default function Cashbook() {
   );
   const [excelData, setExcelData] = useState([]);
   const [notification, setNotification] = useState(null);
+  const [combinedMap, setCombinedMap] = useState({});
 
   useEffect(() => {
     localStorage.setItem("currency", currency);
   }, [currency]);
 
-  const showNote = (msg, type="success") => setNotification({msg, type});
+  const showNote = (msg, type="success") => setNotification({ msg, type });
 
-  const findDateKey = row =>
-    Object.keys(row).find(k => normalize(k) === "date") || null;
-  const findSumKey = row =>
-    Object.keys(row).find(k => normalize(k) === "sumofpremiumcollected") || null;
+  // Load combined payments summary by date from localStorage
+  useEffect(() => {
+    const key = `payments_${posId}`;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        setCombinedMap({});
+        return;
+      }
+      const arr = JSON.parse(raw);
+      const globalDateMap = {};
+      arr.forEach(({ method, rows }) => {
+        rows.forEach(r => {
+          const d = r.txnDate || "";
+          if (!d) return;
+          let amt = 0;
+          if (method === 'ecocash' || method === 'cash') {
+            amt = parseFloat(r.amount) || 0;
+          } else {
+            const credit = parseFloat(r.credit) || 0;
+            if (credit <= 0) return;
+            amt = credit;
+          }
+          globalDateMap[d] = (globalDateMap[d] || 0) + amt;
+        });
+      });
+      setCombinedMap(globalDateMap);
+    } catch (err) {
+      console.error("Failed to load combined payments:", err);
+      setCombinedMap({});
+    }
+  }, [posId]);
 
+  // recalc using Gross Premium / Cancellation
   const recalcRow = row => {
     const gp = parseFloat(getValue(row, "Gross Premium")) || 0;
     const canc = parseFloat(getValue(row, "Cancellation")) || 0;
@@ -57,40 +88,52 @@ export default function Cashbook() {
     const zin = parseFloat(row.ZINARA) || 0;
     const exp = parseFloat(row.approvedExpenses) || 0;
     const remits = netPrem + zin + netP - exp;
+    // remittancesCollected from combinedMap
+    const remCollected = parseFloat(row.remittancesCollected) || 0;
+    const balance = remits - remCollected;
     return {
       actualGross: parseFloat(actual.toFixed(2)),
       commission: parseFloat(comm.toFixed(2)),
       netPremium: parseFloat(netPrem.toFixed(2)),
       ppaCommission: parseFloat(ppaComm.toFixed(2)),
       netPpa: parseFloat(netP.toFixed(2)),
-      expectedRemittances: parseFloat(remits.toFixed(2))
+      expectedRemittances: parseFloat(remits.toFixed(2)),
+      balance: parseFloat(balance.toFixed(2))
     };
   };
 
+  // Load initial excelData, grouping by Date if data passed in
   useEffect(() => {
     if (Array.isArray(data) && data.length > 0) {
-      const sample = data[0];
-      const dateKey = findDateKey(sample);
-      const sumKey = findSumKey(sample);
-      if (!dateKey || !sumKey) {
-        showNote("Invalid data from Payments", "error");
-        setExcelData([]);
-        return;
-      }
-      const rows = data.map(r => {
-        const dateVal = r[dateKey];
-        const raw = parseFloat(r[sumKey]) || 0;
-        const gross = raw >= 0 ? raw : 0;
-        const canc = raw < 0 ? Math.abs(raw) : 0;
+      // Group by Date: sum Gross Premium and Cancellation
+      const grouped = {};
+      data.forEach(r => {
+        const dateVal = r["Date"];
+        if (!dateVal) return;
+        const grossRaw = parseFloat(r["Gross Premium"]) || 0;
+        const cancRaw = parseFloat(r["Cancellation"]) || 0;
+        if (!grouped[dateVal]) {
+          grouped[dateVal] = { gross: 0, canc: 0 };
+        }
+        grouped[dateVal].gross += grossRaw;
+        grouped[dateVal].canc += cancRaw;
+      });
+      // Build rows: one per date
+      const rows = Object.entries(grouped).map(([dateVal, sums]) => {
+        const grossSum = sums.gross;
+        const cancSum = sums.canc;
+        const combinedTotal = combinedMap[dateVal] || 0;
         const row = {
           Date: dateVal,
-          "Gross Premium": gross.toFixed(2),
-          "Cancellation": canc.toFixed(2),
+          "Gross Premium": grossSum.toFixed(2),
+          "Cancellation": cancSum.toFixed(2),
           commissionPct: 0,
           ppaGross: 0,
           ppaPct: 0,
           ZINARA: 0,
-          approvedExpenses: 0
+          approvedExpenses: 0,
+          remittancesCollected: combinedTotal.toFixed(2),
+          comment: ""
         };
         const derived = recalcRow(row);
         return {
@@ -100,35 +143,48 @@ export default function Cashbook() {
           netPremium: derived.netPremium.toFixed(2),
           ppaCommission: derived.ppaCommission.toFixed(2),
           netPpa: derived.netPpa.toFixed(2),
-          expectedRemittances: derived.expectedRemittances.toFixed(2)
+          expectedRemittances: derived.expectedRemittances.toFixed(2),
+          balance: derived.balance.toFixed(2)
         };
       });
       setExcelData(rows);
       localStorage.setItem("cashbookData", JSON.stringify(rows));
     } else {
+      // No incoming data: load saved and update remittancesCollected & balance
       const saved = JSON.parse(localStorage.getItem("cashbookData") || "[]");
-      setExcelData(saved);
+      const updated = saved.map(row => {
+        const dateVal = getValue(row, "Date");
+        const combinedTotal = combinedMap[dateVal] || 0;
+        row.remittancesCollected = combinedTotal.toFixed(2);
+        const derived = recalcRow(row);
+        row.balance = derived.balance.toFixed(2);
+        return row;
+      });
+      setExcelData(updated);
     }
-  }, [data]);
+  }, [data, combinedMap]);
 
   const handleFieldChange = (i, field, val) => {
     const list = [...excelData];
-    // keep two decimals for user-entered numeric fields?
-    // if field is numeric, parse and toFixed(2); else store raw
-    if (["commissionPct","ppaGross","ppaPct","ZINARA","approvedExpenses"].includes(field)) {
+    if (
+      ["commissionPct","ppaGross","ppaPct","ZINARA","approvedExpenses"].includes(field)
+      || field === "comment"
+    ) {
       list[i][field] = val;
-    } else {
-      list[i][field] = val;
+      const dateVal = list[i].Date;
+      const combinedTotal = combinedMap[dateVal] || 0;
+      list[i].remittancesCollected = combinedTotal.toFixed(2);
+      const derived = recalcRow(list[i]);
+      list[i].actualGross = derived.actualGross.toFixed(2);
+      list[i].commission = derived.commission.toFixed(2);
+      list[i].netPremium = derived.netPremium.toFixed(2);
+      list[i].ppaCommission = derived.ppaCommission.toFixed(2);
+      list[i].netPpa = derived.netPpa.toFixed(2);
+      list[i].expectedRemittances = derived.expectedRemittances.toFixed(2);
+      list[i].balance = derived.balance.toFixed(2);
+      setExcelData(list);
+      localStorage.setItem("cashbookData", JSON.stringify(list));
     }
-    const derived = recalcRow(list[i]);
-    list[i].actualGross = derived.actualGross.toFixed(2);
-    list[i].commission = derived.commission.toFixed(2);
-    list[i].netPremium = derived.netPremium.toFixed(2);
-    list[i].ppaCommission = derived.ppaCommission.toFixed(2);
-    list[i].netPpa = derived.netPpa.toFixed(2);
-    list[i].expectedRemittances = derived.expectedRemittances.toFixed(2);
-    setExcelData(list);
-    localStorage.setItem("cashbookData", JSON.stringify(list));
   };
 
   const saveReportToServer = async () => {
@@ -183,6 +239,15 @@ export default function Cashbook() {
               break;
             case "Expected remittances":
               mapped[h] = formatAmt(row.expectedRemittances, currency);
+              break;
+            case "Remittances collected":
+              mapped[h] = formatAmt(row.remittancesCollected, currency);
+              break;
+            case "Balance":
+              mapped[h] = formatAmt(row.balance, currency);
+              break;
+            case "Comment":
+              mapped[h] = (row.comment || "").toString();
               break;
             default:
               mapped[h] = getValue(row, h).toString();
@@ -311,6 +376,18 @@ export default function Cashbook() {
                       />
                     </td>
                     <td className="p-2 border text-sm">{formatAmt(row.expectedRemittances, currency)}</td>
+                    <td className="p-2 border text-sm">
+                      {formatAmt(row.remittancesCollected, currency)}
+                    </td>
+                    <td className="p-2 border text-sm">{formatAmt(row.balance, currency)}</td>
+                    <td className="p-2 border">
+                      <input
+                        type="text"
+                        value={row.comment || ''}
+                        onChange={e => handleFieldChange(i, "comment", e.target.value)}
+                        className="w-32 p-1 border rounded text-sm"
+                      />
+                    </td>
                   </tr>
                 ))
               }

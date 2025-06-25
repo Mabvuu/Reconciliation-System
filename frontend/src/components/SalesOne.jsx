@@ -1,4 +1,4 @@
-// frontend/src/components/Sales.jsx
+// frontend/src/components/SalesOne.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -19,27 +19,44 @@ const BANKS = [
   "First Capital Bank",
 ];
 
-// Helper to build a stable storage key per POS
-const makeStorageKey = posId => `sales_in_progress_${posId}`;
+const PDS_CHANNELS = [
+  "Ecocash",
+  "OneMoney",
+  "MukuruWallet",
+];
 
-export default function Sales() {
+export default function SalesOne() {
   const { posId } = useParams();
-  const { state: { name } = {} } = useLocation();
+  const location = useLocation();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
-  const STORAGE_KEY = makeStorageKey(posId);
+  const nameFromState = location.state?.name;
+  const name = nameFromState || localStorage.getItem('agentName') || '';
 
-  // State
-  const [step, setStep] = useState('choose'); // 'choose' or 'form'
+  useEffect(() => {
+    if (nameFromState) {
+      try {
+        localStorage.setItem('agentName', nameFromState);
+      } catch (err) {
+        console.error('Failed to store agentName:', err);
+      }
+    }
+  }, [nameFromState]);
+
+  const [step, setStep] = useState('choose');
   const [method, setMethod] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [bank, setBank] = useState('');
+  const [pdsChannel, setPdsChannel] = useState('');
   const [rows, setRows] = useState([]);
   const [saved, setSaved] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Load persisted state on mount
+  const STORAGE_KEY = `sales_in_progress_${posId}`;
+  const PAYMENTS_KEY = `payments_${posId}`;
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -50,47 +67,25 @@ export default function Sales() {
           setStep(obj.step || 'choose');
           setCurrency(obj.currency || 'USD');
           setBank(obj.bank || '');
-          if (Array.isArray(obj.rows)) {
-            setRows(obj.rows);
-          }
+          setPdsChannel(obj.pdsChannel || '');
+          if (Array.isArray(obj.rows)) setRows(obj.rows);
           setSaved(!!obj.saved);
         }
       }
     } catch (err) {
-      console.error('Failed to load saved state:', err);
+      console.error("Load state error:", err);
     }
   }, [STORAGE_KEY]);
 
-  // Persist whenever relevant state changes
   useEffect(() => {
-    const toStore = {
-      step,
-      method,
-      currency,
-      bank,
-      rows,
-      saved,
-    };
+    const toStore = { step, method, currency, bank, pdsChannel, rows, saved };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
     } catch (err) {
-      console.error('Failed to save state:', err);
+      console.error("Save state error:", err);
     }
-  }, [STORAGE_KEY, step, method, currency, bank, rows, saved]);
+  }, [STORAGE_KEY, step, method, currency, bank, pdsChannel, rows, saved]);
 
-  // Warn if user refresh/close with unsaved rows
-  useEffect(() => {
-    const handler = e => {
-      if (rows.length && !saved) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [rows, saved]);
-
-  // In-app notification helper
   const showNotification = msg => {
     const id = Date.now() + Math.random();
     setNotifications(n => [...n, { id, msg }]);
@@ -99,28 +94,65 @@ export default function Sales() {
     }, 3000);
   };
 
-  // Map uploaded Excel row keys into our fields
   const mapRow = raw => {
-    const out = { date: '', posId: '', description: '', amount: '', currency: '' };
-    for (let key in raw) {
-      const norm = key.trim().toLowerCase().replace(/\s+/g, '');
-      const val = raw[key];
-      if (norm === 'date') out.date = val;
-      else if (norm === 'posid' || norm === 'pos') out.posId = val;
-      else if (norm === 'description') out.description = val;
-      else if (norm === 'amount') out.amount = val;
-      else if (norm === 'currency') out.currency = val;
+    if (method === 'ecocash' || method === 'cash') {
+      const out = {};
+      Object.keys(raw).forEach(key => {
+        const norm = key.trim().toLowerCase().replace(/\s+/g, '');
+        const val = raw[key];
+        if (norm === 'txndate' || norm === 'transactiondate' || norm === 'date') {
+          out.txnDate = val instanceof Date
+            ? val.toISOString().split('T')[0]
+            : String(val);
+        }
+        if (norm === 'amount' || norm === 'value' || norm === 'credit' || norm === 'debit') {
+          out.amount = String(val);
+        }
+      });
+      if (!out.txnDate) out.txnDate = '';
+      if (out.amount == null) out.amount = '';
+      return out;
+    } else {
+      const out = {
+        txnDate: '',
+        valueDate: '',
+        posId: '',
+        description: '',
+        credit: '',
+        debit: '',
+        balance: '',
+        currency: '',
+      };
+      Object.keys(raw).forEach(key => {
+        const norm = key.trim().toLowerCase().replace(/\s+/g, '');
+        const val = raw[key];
+        if (norm === 'txndate' || norm === 'transactiondate') {
+          out.txnDate = val instanceof Date ? val.toISOString().split('T')[0] : String(val);
+        } else if (norm === 'valuedate') {
+          out.valueDate = val instanceof Date ? val.toISOString().split('T')[0] : String(val);
+        } else if (norm === 'posid' || norm === 'pos') {
+          out.posId = String(val);
+        } else if (norm === 'description') {
+          out.description = String(val);
+        } else if (norm === 'debit') {
+          out.debit = String(val);
+        } else if (norm === 'credit') {
+          out.credit = String(val);
+        } else if (norm === 'balance') {
+          out.balance = String(val);
+        } else if (norm === 'currency') {
+          out.currency = String(val);
+        }
+      });
+      if (!out.posId) out.posId = posId;
+      if (!out.currency) out.currency = currency;
+      const c = parseFloat(out.credit) || 0;
+      const d = parseFloat(out.debit) || 0;
+      out.balance = String(c - d);
+      return out;
     }
-    if (method === 'bank' && !out.posId) {
-      out.posId = posId;
-    }
-    if (!out.currency) {
-      out.currency = currency;
-    }
-    return out;
   };
 
-  // Handle Excel upload (bank method)
   const handleFileUpload = e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -128,118 +160,89 @@ export default function Sales() {
     reader.onload = evt => {
       try {
         const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
+        const wb = XLSX.read(data, { type: 'array', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        const parsed = json.map(mapRow);
-        if (parsed.length + rows.length > 100) {
-          showNotification("Upload would exceed 100 rows. Trim file or clear first.");
-          return;
+        let parsed = json.map(mapRow);
+        if (method !== 'ecocash' && method !== 'cash') {
+          parsed = parsed.filter(r => {
+            const desc = (r.description || '').toLowerCase();
+            return desc.includes(String(posId).toLowerCase());
+          });
         }
         setRows(parsed);
         setSaved(false);
       } catch (err) {
-        console.error('Failed to parse Excel:', err);
+        console.error("Parse Excel error:", err);
         showNotification("Failed to parse Excel file.");
       }
     };
     reader.readAsArrayBuffer(file);
   };
 
-  // Add blank rows for non-bank methods
   const handleAddRows = count => {
-    if (rows.length + count > 100) {
-      showNotification("Cannot exceed 100 rows total.");
-      return;
-    }
-    const newRows = Array.from({ length: count }, () => ({
-      date: '',
-      description: '',
-      amount: '',
-      currency: currency,
-    }));
+    const newRows = Array.from({ length: count }, () => {
+      if (method === 'ecocash' || method === 'cash') {
+        return { txnDate: '', amount: '' };
+      } else {
+        return {
+          txnDate: '',
+          valueDate: '',
+          posId: posId,
+          description: '',
+          credit: '',
+          debit: '',
+          balance: '',
+          currency: currency,
+        };
+      }
+    });
     setRows(r => [...r, ...newRows]);
     setSaved(false);
   };
 
-  // Remove a row
   const handleRemoveRow = idx => {
     setRows(rs => rs.filter((_, i) => i !== idx));
     setSaved(false);
   };
 
-  // Save to backend
-  const onSave = async () => {
+  const onSave = () => {
     if (!name) {
-      showNotification("Missing agent name. Cannot save.");
+      showNotification("Missing agent name.");
       return;
     }
     if (!rows.length) {
-      showNotification("No data to save. Add or upload rows first.");
+      showNotification("No data to save.");
       return;
     }
     if (method === 'bank' && !bank) {
-      showNotification("Select a bank before saving.");
+      showNotification("Select a bank.");
       return;
     }
-    const reportDate = new Date().toISOString().split('T')[0];
-    const tableData = rows.map(r => {
-      const base = {
-        date: r.date,
-        description: r.description,
-        amount: r.amount,
-        currency: r.currency,
-      };
-      if (method === 'bank') {
-        return {
-          ...base,
-          posId: r.posId || posId,
-          Bank: bank,
-        };
-      }
-      return base;
-    });
-    const body = {
-      name,
-      posId,
-      date: reportDate,
-      source: "payments",
-      tableData,
-    };
-    if (method === 'bank') {
-      body.bank = bank;
+    if (method === 'pds' && !pdsChannel) {
+      showNotification("Select a PDS channel.");
+      return;
     }
     try {
-      // relative endpoint; no hardcoded localhost
-      const res = await fetch("/api/reports/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        showNotification("Save failed: " + (text || res.status));
-        return;
-      }
-      const { reportId } = await res.json();
-      showNotification(`Saved ID: ${reportId}`);
+      const raw = localStorage.getItem(PAYMENTS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      arr.push({ method, rows });
+      localStorage.setItem(PAYMENTS_KEY, JSON.stringify(arr));
+      showNotification("Saved locally");
       setSaved(true);
     } catch (err) {
-      console.error('Save error:', err);
-      showNotification("Save failed.");
+      console.error("Local store error:", err);
+      showNotification("Save failed locally.");
     }
   };
 
-  // Clear in-progress data
   const onClear = () => {
     setRows([]);
     setSaved(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setSearchTerm('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Continue from choose screen: if switching method, clear old data
   const onChooseContinue = () => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -248,16 +251,16 @@ export default function Sales() {
         if (prev.method && prev.method !== method) {
           onClear();
           setBank('');
+          setPdsChannel('');
           setSaved(false);
         }
       }
     } catch (err) {
-      console.error('Error checking previous method:', err);
+      console.error("Continue load error:", err);
     }
     setStep('form');
   };
 
-  // Watermark only on choose screen
   const WatermarkGrid = () => (
     <div
       className="absolute inset-0 bg-repeat opacity-20"
@@ -268,7 +271,13 @@ export default function Sales() {
     />
   );
 
-  // RENDER
+  const filteredRows = (method === 'ecocash' || method === 'cash')
+    ? rows
+    : rows.filter(r =>
+        searchTerm.trim() === '' ||
+        (r.description || '').toLowerCase().includes(searchTerm.trim().toLowerCase())
+      );
+
   if (step === 'choose') {
     return (
       <div className="relative flex flex-col items-center justify-center h-screen bg-gray-50 p-4">
@@ -306,10 +315,8 @@ export default function Sales() {
     );
   }
 
-  // form screen
   return (
-    <div className="min-h-screen bg-gray-50 pt-40 px-4">
-      {/* in-app notifications on left */}
+    <div className="min-h-screen bg-gray-50 pt-50 px-4">
       <div className="fixed left-4 top-4 space-y-2 z-50">
         {notifications.map(n => (
           <div
@@ -322,8 +329,67 @@ export default function Sales() {
       </div>
 
       <div className="flex flex-col h-full">
-        <div className="p-4 bg-white shadow flex flex-wrap items-end space-x-4">
-          <h1 className="text-xl font-bold">Payments</h1>
+        {/* Top action buttons */}
+        <div className="p-4 bg-white shadow flex flex-wrap items-center justify-end space-x-3 mb-4">
+          <button
+            onClick={onClear}
+            className="px-4 py-2 bg-yellow-500 text-white rounded"
+          >
+            Clear
+          </button>
+          <button
+            onClick={() => {
+              onClear();
+              setMethod('');
+              setBank('');
+              setPdsChannel('');
+              setSaved(false);
+              setStep('choose');
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+            className="px-4 py-2 bg-red-500 text-white rounded"
+          >
+            Change Method
+          </button>
+          {!saved ? (
+            <button
+              onClick={onSave}
+              className="px-4 py-2 bg-blue-500 text-white rounded"
+            >
+              Save
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                onClear();
+                setMethod('');
+                setBank('');
+                setPdsChannel('');
+                setSaved(false);
+                setStep('choose');
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+              className="px-4 py-2 bg-green-500 text-white rounded"
+            >
+              Start Over
+            </button>
+          )}
+          <button
+            onClick={() => setStep('choose')}
+            className="px-4 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+          >
+            Back
+          </button>
+          <button
+            onClick={() => navigate(`/payments/${posId}/summary`, { state: { name } })}
+            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded"
+          >
+            Next
+          </button>
+        </div>
+
+        <div className="p-4 bg-white shadow flex flex-wrap items-end space-x-4 mb-4">
+          <h1 className="text-xl font-bold w-full">Payments</h1>
           <div className="text-sm text-gray-600">
             POS ID: <span className="font-medium">{posId}</span>
           </div>
@@ -334,10 +400,12 @@ export default function Sales() {
               onChange={e => {
                 setCurrency(e.target.value);
                 setRows(rs =>
-                  rs.map(r => ({
-                    ...r,
-                    currency: r.currency || e.target.value,
-                  }))
+                  rs.map(r => {
+                    if (method !== 'ecocash' && method !== 'cash') {
+                      return { ...r, currency: r.currency || e.target.value };
+                    }
+                    return r;
+                  })
                 );
                 setSaved(false);
               }}
@@ -360,14 +428,30 @@ export default function Sales() {
               >
                 <option value="">--Select a Bank--</option>
                 {BANKS.map(b => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
+                  <option key={b} value={b}>{b}</option>
                 ))}
               </select>
             </label>
           )}
-          {method === 'bank' ? (
+          {method === 'pds' && (
+            <label className="flex flex-col">
+              <span className="text-sm">PDS Channel</span>
+              <select
+                value={pdsChannel}
+                onChange={e => {
+                  setPdsChannel(e.target.value);
+                  setSaved(false);
+                }}
+                className="p-2 border rounded"
+              >
+                <option value="">--Select Channel--</option>
+                {PDS_CHANNELS.map(ch => (
+                  <option key={ch} value={ch}>{ch}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {(method === 'bank' || method === 'pds') ? (
             <label className="flex flex-col flex-grow min-w-[200px]">
               <span className="text-sm">Upload Excel</span>
               <input
@@ -401,173 +485,209 @@ export default function Sales() {
         </div>
 
         <div className="flex-1 overflow-auto p-4">
-          {rows.length === 0 ? (
+          {(method !== 'ecocash' && method !== 'cash') && (
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search description..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+          )}
+
+          {filteredRows.length === 0 ? (
             <p className="text-gray-500 text-center">
-              {method === 'bank'
-                ? 'No data. Upload an Excel.'
-                : 'No data. Use "Add rows" to add entries.'}
+              {rows.length === 0
+                ? (method === 'bank' || method === 'pds'
+                  ? 'No data. Upload an Excel.'
+                  : 'No data. Use "Add rows" to add entries.')
+                : 'No matching transactions.'}
             </p>
           ) : (
             <table className="min-w-full border">
               <thead>
                 <tr>
-                  <th className="border px-2">Date</th>
-                  {method === 'bank' && <th className="border px-2">POS ID</th>}
-                  <th className="border px-2">Description</th>
-                  <th className="border px-2">Amount</th>
-                  <th className="border px-2">Currency</th>
-                  {method === 'bank' && <th className="border px-2">Bank</th>}
-                  <th className="border px-2">Remove</th>
+                  {(method === 'ecocash' || method === 'cash') ? (
+                    <>
+                      <th className="border px-2">Date</th>
+                      <th className="border px-2">Amount</th>
+                      <th className="border px-2">Remove</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="border px-2">Txn Date</th>
+                      <th className="border px-2">Value Date</th>
+                      <th className="border px-2">Description</th>
+                      <th className="border px-2">Credit</th>
+                      <th className="border px-2">Debit</th>
+                      <th className="border px-2">Balance</th>
+                      <th className="border px-2">Currency</th>
+                      {method === 'bank' && <th className="border px-2">Bank</th>}
+                      {method === 'pds' && <th className="border px-2">Channel</th>}
+                      <th className="border px-2">Remove</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
+                {filteredRows.map((row, idx) => (
                   <tr key={idx}>
-                    <td className="border px-2">
-                      <input
-                        type="date"
-                        value={row.date}
-                        onChange={e => {
-                          const newRows = [...rows];
-                          newRows[idx].date = e.target.value;
-                          setRows(newRows);
-                          setSaved(false);
-                        }}
-                        className="w-full"
-                      />
-                    </td>
-                    {method === 'bank' && (
-                      <td className="border px-2">
-                        <input
-                          type="text"
-                          value={row.posId}
-                          onChange={e => {
-                            const newRows = [...rows];
-                            newRows[idx].posId = e.target.value;
-                            setRows(newRows);
-                            setSaved(false);
-                          }}
-                          className="w-full"
-                        />
-                      </td>
+                    {(method === 'ecocash' || method === 'cash') ? (
+                      <>
+                        <td className="border px-2">
+                          <input
+                            type="date"
+                            value={row.txnDate}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].txnDate = e.target.value;
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <input
+                            type="number"
+                            value={row.amount}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].amount = e.target.value;
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2 text-center">
+                          <button
+                            onClick={() => handleRemoveRow(idx)}
+                            className="px-2 py-1 bg-red-500 text-white rounded text-sm"
+                          >
+                            X
+                          </button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="border px-2">
+                          <input
+                            type="date"
+                            value={row.txnDate}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].txnDate = e.target.value;
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <input
+                            type="date"
+                            value={row.valueDate}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].valueDate = e.target.value;
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <input
+                            type="text"
+                            value={row.description}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].description = e.target.value;
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <input
+                            type="number"
+                            value={row.credit}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].credit = e.target.value;
+                              const c = parseFloat(e.target.value) || 0;
+                              const d = parseFloat(newRows[idx].debit) || 0;
+                              newRows[idx].balance = String(c - d);
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <input
+                            type="number"
+                            value={row.debit}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].debit = e.target.value;
+                              const c = parseFloat(newRows[idx].credit) || 0;
+                              const d = parseFloat(e.target.value) || 0;
+                              newRows[idx].balance = String(c - d);
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <input
+                            type="text"
+                            value={row.balance}
+                            readOnly
+                            className="w-full bg-gray-100"
+                          />
+                        </td>
+                        <td className="border px-2">
+                          <select
+                            value={row.currency}
+                            onChange={e => {
+                              const newRows = [...rows];
+                              newRows[idx].currency = e.target.value;
+                              setRows(newRows);
+                              setSaved(false);
+                            }}
+                            className="w-full"
+                          >
+                            <option value="USD">USD</option>
+                            <option value="ZWG">ZWG</option>
+                          </select>
+                        </td>
+                        {method === 'bank' && (
+                          <td className="border px-2 text-center">{bank}</td>
+                        )}
+                        {method === 'pds' && (
+                          <td className="border px-2 text-center">{pdsChannel}</td>
+                        )}
+                        <td className="border px-2 text-center">
+                          <button
+                            onClick={() => handleRemoveRow(idx)}
+                            className="px-2 py-1 bg-red-500 text-white rounded text-sm"
+                          >
+                            X
+                          </button>
+                        </td>
+                      </>
                     )}
-                    <td className="border px-2">
-                      <input
-                        type="text"
-                        value={row.description}
-                        onChange={e => {
-                          const newRows = [...rows];
-                          newRows[idx].description = e.target.value;
-                          setRows(newRows);
-                          setSaved(false);
-                        }}
-                        className="w-full"
-                      />
-                    </td>
-                    <td className="border px-2">
-                      <input
-                        type="number"
-                        value={row.amount}
-                        onChange={e => {
-                          const newRows = [...rows];
-                          newRows[idx].amount = e.target.value;
-                          setRows(newRows);
-                          setSaved(false);
-                        }}
-                        className="w-full"
-                      />
-                    </td>
-                    <td className="border px-2">
-                      <select
-                        value={row.currency}
-                        onChange={e => {
-                          const newRows = [...rows];
-                          newRows[idx].currency = e.target.value;
-                          setRows(newRows);
-                          setSaved(false);
-                        }}
-                        className="w-full"
-                      >
-                        <option value="USD">USD</option>
-                        <option value="ZWG">ZWG</option>
-                      </select>
-                    </td>
-                    {method === 'bank' && (
-                      <td className="border px-2 text-center">{bank}</td>
-                    )}
-                    <td className="border px-2 text-center">
-                      <button
-                        onClick={() => handleRemoveRow(idx)}
-                        className="px-2 py-1 bg-red-500 text-white rounded text-sm"
-                      >
-                        X
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-        </div>
-
-        <div className="p-4 bg-white shadow flex justify-end space-x-3">
-          <button
-            onClick={onClear}
-            className="px-4 py-2 bg-yellow-500 text-white rounded"
-          >
-            Clear
-          </button>
-          <button
-            onClick={() => {
-              // clear and go back to choose
-              onClear();
-              setMethod('');
-              setBank('');
-              setSaved(false);
-              setStep('choose');
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-            className="px-4 py-2 bg-red-500 text-white rounded"
-          >
-            Change Method
-          </button>
-          {!saved ? (
-            <button
-              onClick={onSave}
-              className="px-4 py-2 bg-blue-500 text-white rounded"
-            >
-              Save
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                // after save, allow start over
-                onClear();
-                setMethod('');
-                setBank('');
-                setSaved(false);
-                setStep('choose');
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }}
-              className="px-4 py-2 bg-green-500 text-white rounded"
-            >
-              Start Over
-            </button>
-          )}
-          <button
-            onClick={() => {
-              // in-app “back” to choose without clearing current data
-              setStep('choose');
-            }}
-            className="px-4 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-          >
-            Back
-          </button>
-          <button
-          onClick={()=>navigate('/reports', { state: { name, posId } })}
-          className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded"
-        >Next</button>
-         
         </div>
       </div>
     </div>
