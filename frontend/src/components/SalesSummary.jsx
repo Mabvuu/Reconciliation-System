@@ -85,11 +85,11 @@ export default function SalesSummary() {
 
   const onSaveSummary = async () => {
     if (!name) {
-      alert("Missing agent name.");
+      alert("Agent name is required to save the summary.");
       return;
     }
     if (combinedSummary.length === 0) {
-      alert("Nothing to save.");
+      alert("No data to save.");
       return;
     }
     const reportDate = new Date().toISOString().split('T')[0];
@@ -117,7 +117,7 @@ export default function SalesSummary() {
         return;
       }
       const data = await res.json();
-      alert(`Saved ID: ${data.reportId || "unknown"}`);
+      alert(`Saved successfully! Report ID: ${data.reportId || "unknown"}.`);
     } catch (err) {
       console.error("Save summary error:", err);
       alert("Save failed.");
@@ -126,96 +126,100 @@ export default function SalesSummary() {
 
   if (!name) {
     return (
-      <div className="p-4">
-        <p>Missing agent name. Go back.</p>
+      <div className="p-8 bg-gray-100 rounded-lg shadow-md text-center">
+        <p className="text-lg text-gray-700 mb-4">Agent name is missing. Please go back.</p>
         <button
           onClick={() => navigate(-1)}
-          className="px-4 py-2 bg-gray-300 rounded"
+          className="px-4 py-2 bg-[#556B2F] text-white rounded-md hover:bg-[#6E7881]"
         >
-          Back
+          Go Back
         </button>
       </div>
     );
   }
 
   return (
-    <div className="p-4 pt-50">
-      <h1 className="text-xl font-bold mb-4">Summary for POS {posId}</h1>
+    <div className="p-8 pt-30 bg-gray-50 min-h-screen">
+      <h1 className="text-2xl font-bold mb-6 text-[#556B2F]">
+        Summary for POS {posId}
+      </h1>
 
       {perMethodSummary.length === 0 ? (
-        <p>No payments recorded.</p>
+        <p className="text-lg text-gray-600">
+          No payment records available yet.
+        </p>
       ) : (
         <>
-          <h2 className="text-lg font-semibold mb-2">Breakdown by Payment Method</h2>
-          <table className="min-w-full border mb-6">
-            <thead>
+          <h2 className="text-xl font-semibold mb-4 text-gray-700">
+            Breakdown by Payment Method
+          </h2>
+          <table className="w-full border-collapse border rounded-lg mb-6">
+            <thead className="bg-gray-200">
               <tr>
-                <th className="border px-2">Method</th>
-                <th className="border px-2">Date</th>
-                <th className="border px-2">Total</th>
+                <th className="border px-4 py-2">Method</th>
+                <th className="border px-4 py-2">Date</th>
+                <th className="border px-4 py-2">Total</th>
               </tr>
             </thead>
             <tbody>
               {perMethodSummary.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="border px-2 text-center">{item.method}</td>
-                  <td className="border px-2 text-center">{item.date}</td>
-                  <td className="border px-2 text-right">{item.total.toFixed(2)}</td>
+                <tr key={idx} className="odd:bg-gray-100 even:bg-white">
+                  <td className="border px-4 py-2 text-center">{item.method}</td>
+                  <td className="border px-4 py-2 text-center">{item.date}</td>
+                  <td className="border px-4 py-2 text-right">{item.total.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <h2 className="text-lg font-semibold mb-2">Combined Total by Date</h2>
-          <table className="min-w-full border mb-4">
-            <thead>
+          <h2 className="text-xl font-semibold mb-4 text-gray-700">Combined Totals</h2>
+          <table className="w-full border-collapse border rounded-lg">
+            <thead className="bg-gray-200">
               <tr>
-                <th className="border px-2">Date</th>
-                <th className="border px-2">Total Amount</th>
+                <th className="border px-4 py-2">Date</th>
+                <th className="border px-4 py-2">Total Amount</th>
               </tr>
             </thead>
             <tbody>
               {combinedSummary.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="border px-2 text-center">{item.date}</td>
-                  <td className="border px-2 text-right">{item.total.toFixed(2)}</td>
+                <tr key={idx} className="odd:bg-gray-100 even:bg-white">
+                  <td className="border px-4 py-2 text-center">{item.date}</td>
+                  <td className="border px-4 py-2 text-right">{item.total.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
-                <td className="border px-2 text-center">Grand Total</td>
-                <td id="total-payments" className="border px-2 text-right">
-                  {grandTotal.toFixed(2)}
-                </td>
+                <td className="border px-4 py-2 text-center font-semibold">Grand Total</td>
+                <td className="border px-4 py-2 text-right font-bold">{grandTotal.toFixed(2)}</td>
               </tr>
             </tfoot>
           </table>
         </>
       )}
 
-      <div className="space-x-2">
+      <div className="space-x-3 mt-6">
         <button
           onClick={() => navigate(-1)}
-          className="px-4 py-2 bg-gray-300 rounded"
+          className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
         >
           Back
         </button>
         <button
           onClick={() => navigate(`/payments/${posId}/cashbook`, { state: { name, posId } })}
-          className="px-4 py-2 bg-green-500 text-white rounded"
+          className="px-4 py-2 bg-[#556B2F] text-white rounded-md hover:bg-[#6E7881]"
         >
           Proceed to Cashbook
         </button>
         <button
           onClick={clearSummary}
-          className="px-4 py-2 bg-red-500 text-white rounded"
+          className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
         >
           Clear
         </button>
         <button
           onClick={onSaveSummary}
-          className="px-4 py-2 bg-blue-500 text-white rounded"
+          className="px-4 py-2 bg-[#6E7881] text-white rounded-md hover:bg-[#556B2F]"
         >
           Save Summary
         </button>

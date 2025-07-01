@@ -73,12 +73,12 @@ const AdminDashboard = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-gray-50 pt-20">
+    <div className="relative min-h-screen bg-gray-50 pt-30">
       {/* repeating watermark behind */}
       <div
         className="absolute inset-0 bg-repeat opacity-20"
         style={{
-          backgroundImage: "url('/images/logo1.png')",
+          backgroundImage: "url('/images/logo.png')",
           backgroundSize: '200px 200px'
         }}
       />
@@ -97,7 +97,7 @@ const AdminDashboard = () => {
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="Full name"
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#4F5862]"
               />
             </div>
             <div>
@@ -112,11 +112,11 @@ const AdminDashboard = () => {
             </div>
             <button
               onClick={handleAddOrEdit}
-              className="mt-2 bg-green-600 text-white rounded px-4 py-2 hover:bg-green-700 transition"
+              className="mt-2 bg-[#8A9A57] text-white rounded px-4 py-2 hover:bg-green-700 transition"
             >
               {editIndex !== null ? 'Update' : 'Add'}
             </button>
-            {message && <p className="text-green-600 mt-2 text-sm">{message}</p>}
+            {message && <p className="text[-green-600] mt-2 text-sm">{message}</p>}
             {error && <p className="text-red-600 mt-2 text-sm">{error}</p>}
           </div>
         </section>

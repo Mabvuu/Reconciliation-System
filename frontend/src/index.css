@@ -8,12 +8,16 @@
 @custom-variant dark (&:where(.dark, .dark *));
  /* Define your color variables */
 :root {
-    --color-primary: #84966b;   /* Light Olive Green */
-    --color-dark: #0f2f03;      /* Dark Green */
-    --color-light: #d9e0ba;     /* Lighter Green (Pale) */
-    --color-background: #d9e0ba; /* Use the lighter green as the background */
-    --color-accent: #808000;    /* Olive Green */
+  /* Core grays */
+  --color-primary:    #6E7881;  /* Steel Gray */
+  --color-dark:       #4F5862;  /* Charcoal Gray */
+  --color-light:      #CBD2D9;  /* Mist Gray */
+  --color-olive:      #8A9A57;  /* Sage Olive */
+  --color-olive-light:#B0B573;  /* Pale Olive */
+  --color-background: #F3F4F6;  /* Soft Off‑White */
 }
+
+
 
 /* Global Styles */
 body {

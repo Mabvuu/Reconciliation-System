@@ -158,12 +158,12 @@ export default function Reports() {
   if (error)   return <p className="p-6 text-center text-red-600">{error}</p>
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative pt-20 min-h-screen">
       {/* tiled watermark background */}
       <div
         className="absolute inset-0 bg-repeat opacity-20"
         style={{
-          backgroundImage: "url('/images/logo1.png')",
+          backgroundImage: "url('/images/logo.png')",
           backgroundSize: '200px 200px',
         }}
       />
@@ -182,11 +182,11 @@ export default function Reports() {
           </div>
         )}
 
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Reports</h1>
+        <div className="flex justify-between  uppercase  items-center">
+          <h1 className="text-3xl font-semibold ">Reports</h1>
           <button
             onClick={() => window.history.back()}
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
+            className="px-4 py-2 bg-[#B0B573] hover:bg-gray-300 rounded"
           >
             ← Back
           </button>

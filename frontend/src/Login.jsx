@@ -5,14 +5,22 @@ import { useNavigate } from 'react-router-dom';
 
 export default function Login({ setToken, setIsAdmin }) {
   const [view, setView] = useState('admin'); // 'admin' or 'manager'
-
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
-
   const [managerEmail, setManagerEmail] = useState('');
   const [idNumber, setIdNumber] = useState('');
+  const [notifications, setNotifications] = useState([]);
 
   const navigate = useNavigate();
+
+  // In-UI toast helper
+  const showNotification = msg => {
+    const id = Date.now();
+    setNotifications(n => [...n, { id, msg }]);
+    setTimeout(() => {
+      setNotifications(n => n.filter(x => x.id !== id));
+    }, 3000);
+  };
 
   const submitAdmin = async () => {
     try {
@@ -23,10 +31,10 @@ export default function Login({ setToken, setIsAdmin }) {
       setToken(res.data.token);
       const payload = JSON.parse(atob(res.data.token.split('.')[1]));
       setIsAdmin(payload.is_admin);
-      // after successful admin login, go to AdminDashboard:
+      showNotification('Successfully logged in');
       navigate('/add');
     } catch (err) {
-      alert(err.response?.data || 'Admin login failed');
+      showNotification(err.response?.data || 'Admin login failed');
     }
   };
 
@@ -38,19 +46,32 @@ export default function Login({ setToken, setIsAdmin }) {
       );
       setToken(res.data.token);
       setIsAdmin(false);
+      showNotification('Successfully logged in');
       navigate('/tenants');
     } catch (err) {
-      alert(err.response?.data?.error || 'Manager login failed');
+      showNotification(err.response?.data?.error || 'Manager login failed');
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f5] text-gray-700">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f5] text-gray-700 relative">
+      {/* In-UI toasts */}
+      <div className="fixed top-4 left-4 space-y-2 z-50">
+        {notifications.map(n => (
+          <div
+            key={n.id}
+            className="bg-gray-800 text-white px-4 py-2 rounded shadow"
+          >
+            {n.msg}
+          </div>
+        ))}
+      </div>
+
       <div className="flex space-x-4 mb-6">
         <button
           onClick={() => setView('admin')}
           className={`px-4 py-2 rounded-md font-semibold border border-white ${
-            view === 'admin' ? 'bg-[#0f2f03] text-white' : 'bg-[#808000] text-white'
+            view === 'admin' ? 'bg-[#4F5862] text-white' : 'bg-[#8A9A57] text-white'
           }`}
         >
           ADMIN
@@ -58,7 +79,7 @@ export default function Login({ setToken, setIsAdmin }) {
         <button
           onClick={() => setView('manager')}
           className={`px-4 py-2 rounded-md font-semibold border border-white ${
-            view === 'manager' ? 'bg-[#0f2f03] text-white' : 'bg-[#808000] text-white'
+            view === 'manager' ? 'bg-[#4F5862] text-white' : 'bg-[#8A9A57] text-white'
           }`}
         >
           ACCOUNT MANAGER
@@ -66,22 +87,19 @@ export default function Login({ setToken, setIsAdmin }) {
       </div>
 
       {view === 'admin' && (
-        <div className="w-full max-w-sm bg-[#808000] rounded-lg shadow-md p-6">
-          <div className="flex justify-center mb-6">
-            <img
-              src="/images/logo1.png"
-              alt="Logo"
-              className="h-36 w-36"
-            />
-           
-          </div>
-           <h1 className='text=2xl font-bold text-center text-white'>Welcome to Oliver Compass</h1>
-           <br />
-          <h1 className="text-2xl font-bold text-center mb-6 text-[#ffffff]">
+        <div className="w-full max-w-sm bg-[#6E7881] rounded-lg shadow-md p-6">
+          <div className="rounded-full border-4 border-white border-double p-1">
+    <img
+      src="/images/logo1.png"
+      alt="Logo"
+      className="h-36 w-36 rounded-full"
+    />
+  </div>
+          <h1 className="text-2xl font-bold text-center pt-4 mb-6 text-white">
             ADMIN LOGIN
           </h1>
           <div className="mb-4">
-            <label htmlFor="adminEmail" className="block mb-2 text-m text-white">
+            <label htmlFor="adminEmail" className="block mb-2 text-white">
               Email
             </label>
             <input
@@ -93,7 +111,7 @@ export default function Login({ setToken, setIsAdmin }) {
             />
           </div>
           <div className="mb-6">
-            <label htmlFor="adminPassword" className="block mb-2 text-m text-white">
+            <label htmlFor="adminPassword" className="block mb-2 text-white">
               Password
             </label>
             <input
@@ -106,7 +124,7 @@ export default function Login({ setToken, setIsAdmin }) {
           </div>
           <button
             onClick={submitAdmin}
-            className="w-full bg-[#ffffff] text-[#6B8E23] py-2 rounded-md hover:bg-[#556B2F] transition-colors"
+            className="w-full bg-white text-[#6E7881] hover:text-[#ffffff]  py-2 rounded-md hover:bg-[#556B2F] transition-colors"
           >
             LOGIN
           </button>
@@ -115,18 +133,18 @@ export default function Login({ setToken, setIsAdmin }) {
 
       {view === 'manager' && (
         <div className="w-full max-w-sm bg-white rounded-lg shadow-md p-6">
-          <div className="flex justify-center mb-6">
-            <img
-              src="/images/logo1.png"
-              alt="Logo"
-              className="h-36 w-auto"
-            />
-          </div>
-          <h1 className="text-2xl font-bold text-center mb-6 text-[#6B8E23]">
+          <div className="rounded-full border-4 border-[#4F5862] border-double p-1">
+    <img
+      src="/images/logo1.png"
+      alt="Logo"
+      className="h-36 w-36 rounded-full"
+    />
+  </div>
+          <h1 className="text-2xl font-bold text-center mb-6 pt-4 text-[#4F5862]">
             ACCOUNT MANAGER LOGIN
           </h1>
           <div className="mb-4">
-            <label htmlFor="managerEmail" className="block mb-2 text-m text-gray-700">
+            <label htmlFor="managerEmail" className="block mb-2 text-gray-700">
               Email
             </label>
             <input
@@ -138,7 +156,7 @@ export default function Login({ setToken, setIsAdmin }) {
             />
           </div>
           <div className="mb-6">
-            <label htmlFor="idNumber" className="block mb-2 text-m text-gray-700">
+            <label htmlFor="idNumber" className="block mb-2 text-gray-700">
               ID Number
             </label>
             <input
@@ -151,7 +169,7 @@ export default function Login({ setToken, setIsAdmin }) {
           </div>
           <button
             onClick={submitManager}
-            className="w-full bg-[#6B8E23] text-white py-2 rounded-md hover:bg-[#556B2F] transition-colors"
+            className="w-full bg-[#8A9A57] text-white py-2 rounded-md hover:bg-[#556B2F] transition-colors"
           >
             LOGIN
           </button>
