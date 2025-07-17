@@ -24,16 +24,15 @@ export default function SalesOne() {
   const navigate = useNavigate();
   const location = useLocation();
   const fileInputRef = useRef(null);
-
-  // Agent name
   const name = location.state?.name || localStorage.getItem('agentName') || '';
+
+  // persist agent name
   useEffect(() => {
     if (location.state?.name) {
       localStorage.setItem('agentName', location.state.name);
     }
   }, [location.state]);
 
-  // Memoized keys
   const STORAGE_KEY = useMemo(() => `sales_in_progress_${posId}`, [posId]);
   const PAYMENTS_KEY = useMemo(() => `payments_${posId}`, [posId]);
 
@@ -46,36 +45,26 @@ export default function SalesOne() {
   const [notifications, setNotifications] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Load in-progress state
+  // load in‑progress
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const obj = JSON.parse(raw);
-        if (obj.method) {
-          setMethod(obj.method);
-          setStep(obj.step || 'choose');
-          setCurrency(obj.currency || 'USD');
-          setBank(obj.bank || '');
-          if (Array.isArray(obj.rows)) setRows(obj.rows);
-          setSaved(!!obj.saved);
-        }
-      }
-    } catch (err) {
-      console.error("Load state error:", err);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      setMethod(obj.method || '');
+      setStep(obj.step || 'choose');
+      setCurrency(obj.currency || 'USD');
+      setBank(obj.bank || '');
+      setRows(Array.isArray(obj.rows) ? obj.rows : []);
+      setSaved(!!obj.saved);
     }
   }, [STORAGE_KEY]);
 
-  // Persist state on change
+  // save in‑progress
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ step, method, currency, bank, rows, saved })
-      );
-    } catch (err) {
-      console.error("Save state error:", err);
-    }
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ step, method, currency, bank, rows, saved })
+    );
   }, [STORAGE_KEY, step, method, currency, bank, rows, saved]);
 
   const showNotification = msg => {
@@ -86,95 +75,101 @@ export default function SalesOne() {
     }, 3000);
   };
 
-  // Map an Excel row → our row shape, now including rate & converted
+  const formatDate = v =>
+    v instanceof Date ? v.toISOString().split('T')[0] : String(v);
+
   const mapRow = raw => {
-    let out;
-    if (method === 'ecocash' || method === 'cash') {
-      out = { txnDate: '', amount: '', rate: '', converted: '' };
-      Object.entries(raw).forEach(([key, val]) => {
-        const norm = key.trim().toLowerCase();
-        if (/^(txn(date)?|date)$/.test(norm)) {
-          out.txnDate =
-            val instanceof Date
-              ? val.toISOString().split('T')[0]
-              : String(val);
-        }
-        if (/(amount|value|credit|debit)/.test(norm)) {
-          out.amount = String(val);
-        }
-      });
-    } else {
-      out = {
-        txnDate: '',
-        valueDate: '',
-        posId,
-        description: '',
-        credit: '',
-        debit: '',
-        balance: '',
-        currency,
-        rate: '',
-        converted: ''
+    if (method === 'bank') {
+      const out = {
+        txnDate: '', valueDate: '', posId,
+        description: '', credit: '', debit: '', balance: '',
+        currency, rate: '', converted: ''
       };
-      Object.entries(raw).forEach(([key, val]) => {
-        const norm = key.trim().toLowerCase();
-        if (/^txn/.test(norm)) {
-          out.txnDate =
-            val instanceof Date
-              ? val.toISOString().split('T')[0]
-              : String(val);
-        } else if (/^value/.test(norm)) {
-          out.valueDate =
-            val instanceof Date
-              ? val.toISOString().split('T')[0]
-              : String(val);
-        } else if (/^pos/.test(norm)) {
-          out.posId = String(val);
-        } else if (/description/.test(norm)) {
-          out.description = String(val);
-        } else if (/credit/.test(norm)) {
-          out.credit = String(val);
-        } else if (/debit/.test(norm)) {
-          out.debit = String(val);
-        } else if (/balance/.test(norm)) {
-          out.balance = String(val);
-        } else if (/currency/.test(norm)) {
-          out.currency = String(val);
-        }
+      Object.entries(raw).forEach(([k, v]) => {
+        const key = k.trim().toLowerCase();
+        if (key.startsWith('txn')) out.txnDate = formatDate(v);
+        else if (key.startsWith('value')) out.valueDate = formatDate(v);
+        else if (key.includes('description')) out.description = String(v);
+        else if (key.includes('credit')) out.credit = String(v);
+        else if (key.includes('debit')) out.debit = String(v);
+        else if (key.includes('currency')) out.currency = String(v);
       });
       const c = parseFloat(out.credit) || 0;
       const d = parseFloat(out.debit) || 0;
       out.balance = String(c - d);
+      if (out.currency === 'USD') {
+        out.rate = '';
+        out.converted = '';
+      }
+      return out;
     }
+
+    if (method === 'pds') {
+      const out = { txnDate: '', amount: '', rate: '', converted: '' };
+      out.txnDate = formatDate(raw["DATE"]);
+      out.amount = String(raw["SumOfPremium_Collected"] || '');
+      if (currency === 'USD') {
+        out.rate = '';
+        out.converted = '';
+      }
+      return out;
+    }
+
+    // ecocash / cash fallback
+    const out = { txnDate: '', amount: '', rate: '', converted: '' };
+    Object.entries(raw).forEach(([k, v]) => {
+      const key = k.trim().toLowerCase();
+      if (/^(txn(date)?|date)$/.test(key)) out.txnDate = formatDate(v);
+      if (/(amount|value|credit|debit)/.test(key)) out.amount = String(v);
+    });
     return out;
   };
 
   const handleFileUpload = e => {
     const file = e.target.files[0];
     if (!file) return;
+    if (method === 'pds' && !name) {
+      showNotification("Missing agent name.");
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = evt => {
       try {
         const data = new Uint8Array(evt.target.result);
         const wb = XLSX.read(data, { type: 'array', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        let parsed = XLSX.utils
-          .sheet_to_json(ws, { defval: '' })
-          .map(mapRow);
+        let rawRows = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
-        // filter by POS ID for bank or PDS
-        if (method === 'bank' || method === 'pds') {
-          parsed = parsed.filter(r =>
-            (r.description || '')
-              .toLowerCase()
-              .includes(posId.toLowerCase())
+        if (method === 'bank') {
+          rawRows = rawRows.filter(r =>
+            (r["Description"] || '').toLowerCase().includes(posId.toLowerCase())
+          );
+        } else if (method === 'pds') {
+          rawRows = rawRows.filter(r =>
+            String(r["Payment Method"] || '').toLowerCase() === 'pds'
+            && Object.values(r).some(v =>
+              v != null && v.toString().trim() === name
+            )
           );
         }
 
-        setRows(parsed);
+        let mapped = rawRows.map(mapRow);
+
+        if (method === 'pds') {
+          const grouped = {};
+          mapped.forEach(r => {
+            const date = r.txnDate;
+            const amt = parseFloat(r.amount) || 0;
+            if (!grouped[date]) grouped[date] = { ...r };
+            else grouped[date].amount = String(parseFloat(grouped[date].amount) + amt);
+          });
+          mapped = Object.values(grouped);
+        }
+
+        setRows(mapped);
         setSaved(false);
-      } catch (err) {
-        console.error("Parse Excel error:", err);
+      } catch {
         showNotification("Failed to parse Excel file.");
       }
     };
@@ -182,21 +177,7 @@ export default function SalesOne() {
   };
 
   const handleAddRows = count => {
-    const template =
-      method === 'ecocash' || method === 'cash'
-        ? { txnDate: '', amount: '', rate: '', converted: '' }
-        : {
-            txnDate: '',
-            valueDate: '',
-            posId,
-            description: '',
-            credit: '',
-            debit: '',
-            balance: '',
-            currency,
-            rate: '',
-            converted: ''
-          };
+    const template = { txnDate:'', amount:'', rate:'', converted:'' };
     setRows(r => [...r, ...Array(count).fill().map(() => ({ ...template }))]);
     setSaved(false);
   };
@@ -206,12 +187,8 @@ export default function SalesOne() {
     setRows(rs => {
       const nr = [...rs];
       nr[idx].rate = val;
-      // pick amount for ecocash/cash, otherwise credit
-      const amt =
-        method === 'ecocash' || method === 'cash'
-          ? parseFloat(nr[idx].amount) || 0
-          : parseFloat(nr[idx].credit) || 0;
-      nr[idx].converted = (amt * rate).toFixed(2);
+      const amt = parseFloat(nr[idx].amount) || 0;
+      nr[idx].converted = currency === 'USD' ? (amt * rate).toFixed(2) : '';
       return nr;
     });
     setSaved(false);
@@ -223,18 +200,9 @@ export default function SalesOne() {
   };
 
   const onSave = () => {
-    if (!name) {
-      showNotification("Missing agent name.");
-      return;
-    }
-    if (!rows.length) {
-      showNotification("No data to save.");
-      return;
-    }
-    if (method === 'bank' && !bank) {
-      showNotification("Select a bank.");
-      return;
-    }
+    if (!name) return showNotification("Missing agent name.");
+    if (!rows.length) return showNotification("No data to save.");
+    if (method === 'bank' && !bank) return showNotification("Select a bank.");
     try {
       const raw = localStorage.getItem(PAYMENTS_KEY);
       const arr = raw ? JSON.parse(raw) : [];
@@ -242,22 +210,17 @@ export default function SalesOne() {
       localStorage.setItem(PAYMENTS_KEY, JSON.stringify(arr));
       showNotification("Saved locally");
       setSaved(true);
-    } catch (err) {
-      console.error("Local store error:", err);
+    } catch {
       showNotification("Save failed locally.");
     }
   };
 
   const onClear = () => {
-    setRows([]);
-    setSaved(false);
-    setSearchTerm('');
+    setRows([]); setSaved(false); setSearchTerm('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const onChooseContinue = () => {
-    setStep('form');
-  };
+  const onChooseContinue = () => setStep('form');
 
   const WatermarkGrid = () => (
     <div
@@ -270,14 +233,11 @@ export default function SalesOne() {
   );
 
   const filteredRows =
-    method === 'ecocash' || method === 'cash'
+    ['ecocash','cash','pds'].includes(method)
       ? rows
       : rows.filter(r =>
-          searchTerm.trim() === ''
-            ? true
-            : (r.description || '')
-                .toLowerCase()
-                .includes(searchTerm.trim().toLowerCase())
+          !searchTerm.trim() ||
+          (r.description || '').toLowerCase().includes(searchTerm.toLowerCase())
         );
 
   if (step === 'choose') {
@@ -285,10 +245,7 @@ export default function SalesOne() {
       <div className="relative flex flex-col items-center justify-center h-screen bg-gray-50 p-4">
         <WatermarkGrid />
         <div className="relative z-10 w-full max-w-sm text-center">
-          <button
-            onClick={() => navigate(-1)}
-            className="self-start mb-4 px-4 py-2 bg-gray-300 rounded"
-          >
+          <button onClick={() => navigate(-1)} className="self-start mb-4 px-4 py-2 bg-gray-300 rounded">
             Back
           </button>
           <h2 className="text-xl font-bold mb-2">Select Payment Method</h2>
@@ -320,29 +277,22 @@ export default function SalesOne() {
   return (
     <div className="min-h-screen pt-40 bg-gray-50 p-4">
       {/* notifications */}
-      <div className="fixed top-4 left-4 space-y-2 z-50">
+      <div className="fixed top-4 left-4 z-50 space-y-2">
         {notifications.map(n => (
-          <div
-            key={n.id}
-            className="bg-blue-100 text-blue-800 px-3 py-1 rounded"
-          >
+          <div key={n.id} className="bg-blue-100 text-blue-800 px-3 py-1 rounded">
             {n.msg}
           </div>
         ))}
       </div>
 
-      {/* action bar */}
+      {/* actions */}
       <div className="mb-4 flex flex-wrap justify-end bg-white p-4 shadow space-x-2">
         <button onClick={onClear} className="px-4 py-2 bg-yellow-500 text-white rounded">
           Clear
         </button>
         <button
           onClick={() => {
-            onClear();
-            setMethod('');
-            setBank('');
-            setSaved(false);
-            setStep('choose');
+            onClear(); setMethod(''); setBank(''); setSaved(false); setStep('choose');
           }}
           className="px-4 py-2 bg-red-500 text-white rounded"
         >
@@ -355,11 +305,7 @@ export default function SalesOne() {
         ) : (
           <button
             onClick={() => {
-              onClear();
-              setMethod('');
-              setBank('');
-              setSaved(false);
-              setStep('choose');
+              onClear(); setMethod(''); setBank(''); setSaved(false); setStep('choose');
             }}
             className="px-4 py-2 bg-green-500 text-white rounded"
           >
@@ -374,21 +320,19 @@ export default function SalesOne() {
         </button>
       </div>
 
-      {/* upload/add row controls */}
+      {/* upload / add rows */}
       <div className="mb-4 flex flex-wrap items-end bg-white p-4 shadow space-x-4">
         <div>POS ID: <strong>{posId}</strong></div>
-        <label className="flex  flex-col">
+        <label className="flex flex-col">
           Currency
           <select
             value={currency}
             onChange={e => {
               setCurrency(e.target.value);
-              setRows(rs =>
-                rs.map(r => ({ ...r, currency: r.currency || e.target.value }))
-              );
+              setRows(rs => rs.map(r => ({ ...r, rate:'', converted:'' })));
               setSaved(false);
             }}
-            className="border p-2 rounded"
+            className="border p-9 py-1 pt-2 rounded"
           >
             <option value="USD">USD</option>
             <option value="ZWG">ZWG</option>
@@ -399,31 +343,20 @@ export default function SalesOne() {
             Bank
             <select
               value={bank}
-              onChange={e => {
-                setBank(e.target.value);
-                setSaved(false);
-              }}
+              onChange={e => { setBank(e.target.value); setSaved(false); }}
               className="border p-2 rounded"
             >
               <option value="">--Select a Bank--</option>
-              {BANKS.map(b => (
-                <option key={b} value={b}>{b}</option>
-              ))}
+              {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </label>
         )}
         <label className="flex flex-col flex-grow">
-          {method === 'ecocash' || method === 'cash' ? 'Add rows:' : 'Upload Excel'}
-          {method === 'ecocash' || method === 'cash' ? (
-            <select
-              defaultValue=""
-              onChange={e => handleAddRows(Number(e.target.value))}
-              className="border p-2 rounded"
-            >
+          {['ecocash','cash','pds'].includes(method) ? 'Add rows / Upload Excel' : 'Upload Excel'}
+          {['ecocash','cash'].includes(method) ? (
+            <select defaultValue="" onChange={e => handleAddRows(Number(e.target.value))} className="border p-2 rounded">
               <option value="" disabled>Choose</option>
-              {[1,5,10,20,100].map(n => (
-                <option key={n} value={n}>{n}</option>
-              ))}
+              {[1,5,10,20,100].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           ) : (
             <input
@@ -437,9 +370,9 @@ export default function SalesOne() {
         </label>
       </div>
 
-      {/* data table */}
+      {/* table or no-data */}
       <div className="bg-white p-4 shadow overflow-auto">
-        {(method !== 'ecocash' && method !== 'cash') && (
+        {(method !== 'ecocash' && method !== 'cash' && method !== 'pds') && (
           <div className="mb-4">
             <input
               type="text"
@@ -450,226 +383,206 @@ export default function SalesOne() {
             />
           </div>
         )}
+
         {filteredRows.length === 0 ? (
           <p className="text-center text-gray-500">
             {rows.length === 0
-              ? (method === 'bank' || method === 'pds'
-                ? 'No data. Upload an Excel.'
-                : 'No data. Use "Add rows" to add entries.')
+              ? (method === 'bank' ? 'No data. Upload an Excel.' : 'No data. Use "Add rows".')
               : 'No matching transactions.'}
           </p>
         ) : (
-          <table className="min-w-full border">
+          <table className="w-full table-auto border">
             <thead>
               <tr>
-                {(method === 'ecocash' || method === 'cash') ? (
+                {['ecocash','cash','pds'].includes(method) ? (
                   <>
-                    <th className="border px-2">Date</th>
-                    <th className="border px-2">Amount</th>
-                    <th className="border px-2">Rate</th>
-                    <th className="border px-2">Converted</th>
-                    <th className="border px-2">Remove</th>
+                    <th className="border px-1 py-1">Date</th>
+                    <th className="border px-1 py-1">Amount</th>
+                    {currency === 'USD' && <th className="border px-1 py-1">Rate</th>}
+                    {currency === 'USD' && <th className="border px-1 py-1">Converted</th>}
+                    <th className="border px-1 py-1">Remove</th>
                   </>
                 ) : (
                   <>
-                    <th className="border px-2">Txn Date</th>
-                    <th className="border px-2">Value Date</th>
-                    <th className="border px-2">Description</th>
-                    <th className="border px-2">Credit</th>
-                    <th className="border px-2">Debit</th>
-                    <th className="border px-2">Balance</th>
-                    <th className="border px-2">Currency</th>
-                    <th className="border px-2">Rate</th>
-                    <th className="border px-2">Converted</th>
-                    <th className="border px-2">Bank</th>
-                    <th className="border px-2">Remove</th>
+                    <th className="border px-1 py-1">Txn Date</th>
+                    <th className="border px-1 py-1">Value Date</th>
+                    <th className="border px-1 py-1">Description</th>
+                    <th className="border px-1 py-1">Credit</th>
+                    <th className="border px-1 py-1">Debit</th>
+                    <th className="border px-1 py-1">Balance</th>
+                    <th className="border px-1 py-1">Currency</th>
+                    {currency === 'USD' && <th className="border px-1 py-1">Rate</th>}
+                    {currency === 'USD' && <th className="border px-1 py-1">Converted</th>}
+                    <th className="border px-1 py-1">Bank</th>
+                    <th className="border px-1 py-1">Remove</th>
                   </>
                 )}
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row, idx) => (
-                <tr key={idx}>
-                  {(method === 'ecocash' || method === 'cash') ? (
+              {filteredRows.map((row, i) => (
+                <tr key={i} className="hover:bg-gray-50">
+                  {['ecocash','cash','pds'].includes(method) ? (
                     <>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="date"
                           value={row.txnDate}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].txnDate = e.target.value;
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].txnDate = e.target.value;
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="number"
                           value={row.amount}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].amount = e.target.value;
-                            // update converted if rate present
-                            const rate = parseFloat(nr[idx].rate) || 0;
-                            nr[idx].converted = ((parseFloat(e.target.value)||0) * rate).toFixed(2);
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].amount = e.target.value;
+                            if (currency === 'USD') {
+                              nr[i].converted = ((parseFloat(e.target.value)||0)*(parseFloat(nr[i].rate)||0)).toFixed(2);
+                            }
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
-                        <input
-                          type="number"
-                          value={row.rate}
-                          onChange={e => handleRateChange(idx, e.target.value)}
-                          className="w-full"
-                        />
-                      </td>
-                      <td className="border px-2">
-                        <input
-                          type="text"
-                          value={row.converted}
-                          readOnly
-                          className="w-full bg-gray-100"
-                        />
-                      </td>
-                      <td className="border px-2 text-center">
-                        <button
-                          onClick={() => handleRemoveRow(idx)}
-                          className="px-2 py-1 bg-red-500 text-white rounded text-sm"
-                        >
-                          X
-                        </button>
+                      {currency === 'USD' && (
+                        <td className="border px-1 py-1">
+                          <input
+                            type="number"
+                            value={row.rate}
+                            onChange={e => handleRateChange(i, e.target.value)}
+                            className="w-full h-6"
+                          />
+                        </td>
+                      )}
+                      {currency === 'USD' && (
+                        <td className="border px-1 py-1">
+                          <input readOnly value={row.converted} className="w-full h-6 bg-gray-100" />
+                        </td>
+                      )}
+                      <td className="border px-1 py-1 text-center">
+                        <button onClick={() => handleRemoveRow(i)} className="px-2 py-1 bg-red-500 text-white rounded text-sm">X</button>
                       </td>
                     </>
                   ) : (
                     <>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="date"
                           value={row.txnDate}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].txnDate = e.target.value;
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].txnDate = e.target.value;
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="date"
                           value={row.valueDate}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].valueDate = e.target.value;
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].valueDate = e.target.value;
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="text"
                           value={row.description}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].description = e.target.value;
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].description = e.target.value;
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="number"
                           value={row.credit}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].credit = e.target.value;
-                            // update balance
-                            const c = parseFloat(e.target.value) || 0;
-                            const d = parseFloat(nr[idx].debit) || 0;
-                            nr[idx].balance = String(c - d);
-                            // update converted if rate present
-                            const rate = parseFloat(nr[idx].rate) || 0;
-                            nr[idx].converted = (c * rate).toFixed(2);
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].credit = e.target.value;
+                            const c = parseFloat(e.target.value)||0;
+                            const d = parseFloat(nr[i].debit)||0;
+                            nr[i].balance = String(c-d);
+                            if (currency === 'USD') {
+                              nr[i].converted = (c*(parseFloat(nr[i].rate)||0)).toFixed(2);
+                            }
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <input
                           type="number"
                           value={row.debit}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].debit = e.target.value;
-                            // update balance
-                            const c = parseFloat(nr[idx].credit) || 0;
-                            const d = parseFloat(e.target.value) || 0;
-                            nr[idx].balance = String(c - d);
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].debit = e.target.value;
+                            const c = parseFloat(nr[i].credit)||0;
+                            const d = parseFloat(e.target.value)||0;
+                            nr[i].balance = String(c-d);
+                            if (currency === 'USD') {
+                              nr[i].converted = (c*(parseFloat(nr[i].rate)||0)).toFixed(2);
+                            }
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full"
+                          className="w-full h-6"
                         />
                       </td>
-                      <td className="border px-2">
-                        <input
-                          readOnly
-                          value={row.balance}
-                          className="w-full bg-gray-100"
-                        />
+                      <td className="border px-1 py-1">
+                        <input readOnly value={row.balance} className="w-full h-6 bg-gray-100" />
                       </td>
-                      <td className="border px-2">
+                      <td className="border px-1 py-1">
                         <select
                           value={row.currency}
                           onChange={e => {
                             const nr = [...rows];
-                            nr[idx].currency = e.target.value;
-                            setRows(nr);
-                            setSaved(false);
+                            nr[i].currency = e.target.value;
+                            if (e.target.value !== 'USD') {
+                              nr[i].rate = '';
+                              nr[i].converted = '';
+                            }
+                            setRows(nr); setSaved(false);
                           }}
-                          className="w-full px-5 py-15"
+                          className="w-full h-6"
                         >
                           <option value="USD">USD</option>
                           <option value="ZWG">ZWG</option>
                         </select>
                       </td>
-                      <td className="border px-2">
-                        <input
-                          type="number"
-                          value={row.rate}
-                          onChange={e => handleRateChange(idx, e.target.value)}
-                          className="w-full"
-                        />
-                      </td>
-                      <td className="border px-2">
-                        <input
-                          type="text"
-                          value={row.converted}
-                          readOnly
-                          className="w-full bg-gray-100"
-                        />
-                      </td>
-                      <td className="border px-2 text-center">{bank}</td>
-                      <td className="border px-2 text-center">
-                        <button
-                          onClick={() => handleRemoveRow(idx)}
-                          className="px-2 py-1 bg-red-500 text-white rounded text-sm"
-                        >
-                          X
-                        </button>
+                      {currency === 'USD' && (
+                        <td className="border px-1 py-1">
+                          <input
+                            type="number"
+                            value={row.rate}
+                            onChange={e => handleRateChange(i, e.target.value)}
+                            className="w-full h-6"
+                          />
+                        </td>
+                      )}
+                      {currency === 'USD' && (
+                        <td className="border px-1 py-1">
+                          <input readOnly value={row.converted} className="w-full h-6 bg-gray-100" />
+                        </td>
+                      )}
+                      <td className="border px-1 py-1 text-center">{bank}</td>
+                      <td className="border px-1 py-1 text-center">
+                        <button onClick={() => handleRemoveRow(i)} className="px-2 py-1 bg-red-500 text-white rounded text-sm">X</button>
                       </td>
                     </>
                   )}
